@@ -4,7 +4,6 @@ Copyright © 2026 brightSPARK Labs <www.brightsparklabs.com>
 package cmd
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -43,39 +42,15 @@ to quickly create a Cobra application.`,
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
 	zarfCmd := zarf.NewZarfCommand()
-	rootCmd.AddCommand(zarfCmd)
 
-	var toolsCmd *cobra.Command
-	for _, cmd := range zarfCmd.Commands() {
-		if cmd.Use == "tools" {
-			toolsCmd = cmd
-			break
-		}
-	}
-	if toolsCmd == nil {
-		fmt.Printf("Could not find `tools` command")
-		os.Exit(1)
-	}
-
-	var k9sCmd *cobra.Command
-	for _, cmd := range toolsCmd.Commands() {
-		if cmd.Use == "monitor" {
-			k9sCmd = cmd
-			break
-		}
-	}
-	if k9sCmd == nil {
-		fmt.Printf("Could not find `k9s` command")
-		os.Exit(1)
-	}
-
-	var nestedK9sCmd = &cobra.Command{
-		Use: "k9s-zsh",
+	var nestedZarfCmd = &cobra.Command{
+		Use: "list-packages",
 		Run: func(cmd *cobra.Command, args []string) {
-			k9sCmd.Run(cmd, []string{"completion", "zsh"})
+			zarfCmd.SetArgs([]string{"package", "list"})
+			zarfCmd.Execute()
 		},
 	}
-	rootCmd.AddCommand(nestedK9sCmd)
+	rootCmd.AddCommand(nestedZarfCmd)
 
 	err := rootCmd.Execute()
 	if err != nil {
