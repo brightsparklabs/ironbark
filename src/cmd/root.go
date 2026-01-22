@@ -4,12 +4,11 @@ Copyright © 2026 brightSPARK Labs <www.brightsparklabs.com>
 package cmd
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
-	//zarf "github.com/zarf-dev/zarf/src/cmd"
-
-	_ "unsafe" // For go:linkname
+	zarf "github.com/zarf-dev/zarf/src/cmd"
 )
 
 const envCliName = "IRONBARK_CLI_NAME"
@@ -40,20 +39,42 @@ to quickly create a Cobra application.`,
 	// Run: func(cmd *cobra.Command, args []string) { },
 }
 
-//go:linkname newK9sCommand github.com/zarf-dev/zarf/src/cmd.newK9sCommand
-func newK9sCommand() *cobra.Command
-
-var nestedK9sCmd = &cobra.Command{
-	Use: "k9s-zsh",
-	Run: func(cmd *cobra.Command, args []string) {
-		k9sCmd := newK9sCommand()
-		k9sCmd.Run(cmd, []string{"completion", "zsh"})
-	},
-}
-
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
+	zarfCmd := zarf.NewZarfCommand()
+	rootCmd.AddCommand(zarfCmd)
+
+	var toolsCmd *cobra.Command
+	for _, cmd := range zarfCmd.Commands() {
+		if cmd.Use == "tools" {
+			toolsCmd = cmd
+			break
+		}
+	}
+	if toolsCmd == nil {
+		fmt.Printf("Could not find `tools` command")
+		os.Exit(1)
+	}
+
+	var k9sCmd *cobra.Command
+	for _, cmd := range toolsCmd.Commands() {
+		if cmd.Use == "monitor" {
+			k9sCmd = cmd
+			break
+		}
+	}
+	if k9sCmd == nil {
+		fmt.Printf("Could not find `k9s` command")
+		os.Exit(1)
+	}
+
+	var nestedK9sCmd = &cobra.Command{
+		Use: "k9s-zsh",
+		Run: func(cmd *cobra.Command, args []string) {
+			k9sCmd.Run(cmd, []string{"completion", "zsh"})
+		},
+	}
 	rootCmd.AddCommand(nestedK9sCmd)
 
 	err := rootCmd.Execute()
