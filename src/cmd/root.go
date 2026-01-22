@@ -9,9 +9,22 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const envCliName = "IRONBARK_CLI_NAME"
+
+func getCliName() string {
+	cliName := os.Getenv(envCliName)
+	if cliName == "" {
+		cliName = "ironbark"
+	}
+	return cliName
+}
+
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
-	Use:   "ironbark",
+	Use: "ironbark",
+	Annotations: map[string]string{
+		cobra.CommandDisplayNameAnnotation: getCliName(),
+	},
 	Short: "A brief description of your application",
 	Long: `A longer description that spans multiple lines and likely contains
 examples and usage of using your application. For example:
