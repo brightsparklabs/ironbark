@@ -3,6 +3,11 @@ module brightsparklabs.com/ironbark
 go 1.25.5
 
 require (
+	github.com/spf13/cobra v1.10.2
+	github.com/zarf-dev/zarf v0.69.0
+)
+
+require (
 	atomicgo.dev/cursor v0.2.0 // indirect
 	atomicgo.dev/keyboard v0.2.9 // indirect
 	atomicgo.dev/schedule v0.1.0 // indirect
@@ -481,7 +486,6 @@ require (
 	github.com/spdx/tools-golang v0.5.5 // indirect
 	github.com/spf13/afero v1.15.0 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
-	github.com/spf13/cobra v1.10.2 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/spf13/viper v1.21.0 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.6.0 // indirect
@@ -518,7 +522,6 @@ require (
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/yashtewari/glob-intersection v0.2.0 // indirect
 	github.com/yuin/gopher-lua v1.1.1 // indirect
-	github.com/zarf-dev/zarf v0.69.0 // indirect
 	github.com/zclconf/go-cty v1.17.0 // indirect
 	github.com/zyedidia/generic v1.2.2-0.20230320175451-4410d2372cb1 // indirect
 	gitlab.com/gitlab-org/api/client-go v0.160.0 // indirect
