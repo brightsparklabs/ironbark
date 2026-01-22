@@ -7,7 +7,9 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	zarf "github.com/zarf-dev/zarf/src/cmd"
+	//zarf "github.com/zarf-dev/zarf/src/cmd"
+
+	_ "unsafe" // For go:linkname
 )
 
 const envCliName = "IRONBARK_CLI_NAME"
@@ -38,11 +40,21 @@ to quickly create a Cobra application.`,
 	// Run: func(cmd *cobra.Command, args []string) { },
 }
 
+//go:linkname newK9sCommand github.com/zarf-dev/zarf/src/cmd.newK9sCommand
+func newK9sCommand() *cobra.Command
+
+var nestedK9sCmd = &cobra.Command{
+	Use: "k9s-zsh",
+	Run: func(cmd *cobra.Command, args []string) {
+		k9sCmd := newK9sCommand()
+		k9sCmd.Run(cmd, []string{"completion", "zsh"})
+	},
+}
+
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
-	zarfCmd := zarf.NewZarfCommand()
-	rootCmd.AddCommand(zarfCmd)
+	rootCmd.AddCommand(nestedK9sCmd)
 
 	err := rootCmd.Execute()
 	if err != nil {
