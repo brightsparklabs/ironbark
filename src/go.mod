@@ -3,6 +3,8 @@ module brightsparklabs.com/ironbark
 go 1.25.5
 
 require (
+	code.gitea.io/sdk/gitea v0.22.1
+	github.com/go-git/go-git/v5 v5.16.4
 	github.com/spf13/cobra v1.10.2
 	github.com/zarf-dev/zarf v0.69.0
 )
@@ -25,6 +27,7 @@ require (
 	cuelang.org/go v0.15.1 // indirect
 	cyphar.com/go-pathrs v0.2.1 // indirect
 	dario.cat/mergo v1.0.2 // indirect
+	github.com/42wim/httpsig v1.2.3 // indirect
 	github.com/AdaLogics/go-fuzz-headers v0.0.0-20240806141605-e8a1dd7889d6 // indirect
 	github.com/AdamKorcz/go-118-fuzz-build v0.0.0-20250520111509-a70c2aa677fa // indirect
 	github.com/AlecAivazis/survey/v2 v2.3.7 // indirect
@@ -188,6 +191,7 @@ require (
 	github.com/cyberphone/json-canonicalization v0.0.0-20241213102144-19d51d7fe467 // indirect
 	github.com/cyphar/filepath-securejoin v0.6.1 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
+	github.com/davidmz/go-pageant v1.0.2 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
 	github.com/defenseunicorns/pkg/helpers/v2 v2.0.4 // indirect
 	github.com/defenseunicorns/pkg/oci v1.3.0 // indirect
@@ -239,9 +243,9 @@ require (
 	github.com/glebarez/sqlite v1.11.0 // indirect
 	github.com/go-chi/chi/v5 v5.2.3 // indirect
 	github.com/go-errors/errors v1.5.1 // indirect
+	github.com/go-fed/httpsig v1.1.0 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
 	github.com/go-git/go-billy/v5 v5.7.0 // indirect
-	github.com/go-git/go-git/v5 v5.16.4 // indirect
 	github.com/go-gorp/gorp/v3 v3.1.0 // indirect
 	github.com/go-ini/ini v1.67.0 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.3 // indirect
