@@ -4,33 +4,32 @@ Copyright © 2026 brightSPARK Labs <www.brightsparklabs.com>
 package cmd
 
 import (
-	"log/slog"
-	"os"
-	"path/filepath"
-	"time"
-
-	"code.gitea.io/sdk/gitea"
-	"github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/config"
-	"github.com/go-git/go-git/v5/plumbing/object"
-	"github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/spf13/cobra"
 	zarfcmd "github.com/zarf-dev/zarf/src/cmd"
-	zarfcluster "github.com/zarf-dev/zarf/src/pkg/cluster"
-	zarfstate "github.com/zarf-dev/zarf/src/pkg/state"
+	"log/slog"
+	"os"
 )
 
 const envCliName = "IRONBARK_CLI_NAME"
+const envDataDir = "IRONBARK_DATA_DIR"
 
 var jsonHandler = slog.NewJSONHandler(os.Stderr, nil)
 var logger = slog.New(jsonHandler)
 
-func getCliName() string {
-	cliName := os.Getenv(envCliName)
-	if cliName == "" {
-		cliName = "ironbark"
+func getEnvVar(name, defaultValue string) string {
+	value := os.Getenv(name)
+	if value == "" {
+		value = defaultValue
 	}
-	return cliName
+	return value
+}
+
+func getCliName() string {
+	return getEnvVar(envCliName, "ironbark")
+}
+
+func getDataDir() string {
+	return getEnvVar(envDataDir, "/tmp/data")
 }
 
 // rootCmd represents the base command when called without any subcommands
@@ -65,11 +64,7 @@ func Execute() {
 	}
 	rootCmd.AddCommand(nestedZarfCmd)
 
-	var initArgoRepoCmd = &cobra.Command{
-		Use: "initArgoRepo",
-		Run: initArgoRepoExec,
-	}
-	rootCmd.AddCommand(initArgoRepoCmd)
+	rootCmd.AddCommand(newArgoCmd())
 
 	err := rootCmd.Execute()
 	if err != nil {
@@ -82,87 +77,6 @@ func exitOnError(err error, errorMessage string) {
 		logger.Error(errorMessage, "err", err)
 		panic(err)
 	}
-}
-
-func initArgoRepoExec(cmd *cobra.Command, args []string) {
-	ctx := cmd.Context()
-	zarfCluster, err := zarfcluster.New(ctx)
-	exitOnError(err, "Could not retrieve zarf cluster")
-
-	zarfState, err := zarfCluster.LoadState(ctx)
-	exitOnError(err, "Could not retrieve zarf state")
-
-	registryInfo := zarfState.RegistryInfo
-	logger.Info("Retrieved registry info", "registryInfo", registryInfo)
-
-	gitServer := zarfState.GitServer
-	logger.Info("Retrieved git server", "gitServer", gitServer)
-
-	tunnelGit, err := zarfCluster.NewTunnel(zarfstate.ZarfNamespaceName, zarfcluster.SvcResource, zarfcluster.ZarfGitServerName, "", 0, zarfcluster.ZarfGitServerPort)
-	exitOnError(err, "Could not create zarf git tunnel")
-	_, err = tunnelGit.Connect(ctx)
-	exitOnError(err, "Could not connect to zarf git tunnel")
-	defer tunnelGit.Close()
-	tunnelURLs := tunnelGit.HTTPEndpoints()
-	if len(tunnelURLs) == 0 {
-		logger.Error("No zarf git tunnel HTTP endpoints available")
-		panic(1)
-	}
-
-	giteaOptions := gitea.SetBasicAuth(gitServer.PushUsername, gitServer.PushPassword)
-	giteaClient, err := gitea.NewClient(tunnelURLs[0], giteaOptions)
-	repoOptions := gitea.CreateRepoOption{
-		Name:        "ironbark-argo",
-		Description: "Ironbark created Argo app of apps repo",
-		// These do not seem to be picked up.
-		Private: false,
-		Readme:  "Created by Ironbark",
-	}
-	repo, response, err := giteaClient.CreateRepo(repoOptions)
-	logger.Info("Created repo", "repo", repo)
-	logger.Info("Got response", "response", response.Body)
-
-	dir, err := os.MkdirTemp("", "ironbark-argo-repo-*")
-	exitOnError(err, "Could not retrieve zarf state")
-	// TODO:Uncomment when testing done.
-	//defer os.RemoveAll(dir) // Clean up the directory after use
-	logger.Info("Created temp dir", "dir", dir)
-
-	localRepo, err := git.PlainInit(dir, false)
-	exitOnError(err, "Error initialising repo")
-	logger.Info("Initialised argo local repo")
-
-	file := filepath.Join(dir, "README.md")
-	os.WriteFile(file, []byte("Created by Ironbark.\n"), 0644)
-	logger.Info("README created successfully")
-
-	w, _ := localRepo.Worktree()
-	_, _ = w.Add("README.md")
-	_, err = w.Commit("Initial commit", &git.CommitOptions{
-		Author: &object.Signature{
-			Name:  "Ironbark",
-			Email: "ironbark@brightsparklabs.dev",
-			When:  time.Now(),
-		},
-	})
-	exitOnError(err, "Could not create initial commit")
-
-	_, err = localRepo.CreateRemote(&config.RemoteConfig{
-		Name: "origin",
-		URLs: []string{tunnelURLs[0] + "/" + repo.FullName},
-	})
-	exitOnError(err, "Could not create initial commit")
-
-	auth := &http.BasicAuth{
-		Username: gitServer.PushUsername,
-		Password: gitServer.PushPassword,
-	}
-
-	err = localRepo.Push(&git.PushOptions{
-		RemoteName: "origin",
-		Auth:       auth,
-	})
-	exitOnError(err, "Could not push argo repo")
 }
 
 func init() {
