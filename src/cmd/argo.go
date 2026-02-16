@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"brightsparklabs.com/ironbark/resources"
 	"code.gitea.io/sdk/gitea"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
@@ -92,12 +93,10 @@ func initArgoExec(cmd *cobra.Command, args []string) {
 	})
 	exitOnError(err, "Could not add remote repo")
 
-	file := filepath.Join(dir, "README.md")
-	os.WriteFile(file, []byte("Created by Ironbark.\n"), 0644)
-	logger.Info("README created successfully")
+	copyAppOfAppResources(dir)
 
 	w, _ := localRepo.Worktree()
-	_, _ = w.Add("README.md")
+	_, _ = w.Add(".")
 	_, err = w.Commit("Initial commit", &git.CommitOptions{
 		Author: &object.Signature{
 			Name:  "Ironbark",
@@ -117,4 +116,9 @@ func initArgoExec(cmd *cobra.Command, args []string) {
 		Auth:       auth,
 	})
 	exitOnError(err, "Could not push argo repo")
+}
+
+func copyAppOfAppResources(dir string) error {
+	err := resources.Copy("resources/argo-repo", dir)
+	return err
 }
