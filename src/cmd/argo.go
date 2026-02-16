@@ -4,6 +4,7 @@ Copyright © 2026 brightSPARK Labs <www.brightsparklabs.com>
 package cmd
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -79,19 +80,39 @@ func initArgoExec(cmd *cobra.Command, args []string) {
 
 	reposDir := filepath.Join(getDataDir(), "repos")
 	dir := filepath.Join(reposDir, "ironbark-argo")
-	err = os.MkdirAll(dir, 0755)
-	exitOnError(err, "Could not retrieve zarf state")
-	logger.Info("Created argo repo dir", "dir", dir)
-
-	localRepo, err := git.PlainInit(dir, false)
-	exitOnError(err, "Error initialising repo")
-	logger.Info("Initialised argo local repo")
+	localRepo, err := createLocalArgoCDRepo(dir)
+	exitOnError(err, "Could not create local ArgoCD repo")
 
 	_, err = localRepo.CreateRemote(&config.RemoteConfig{
 		Name: "origin",
 		URLs: []string{tunnelURLs[0] + "/" + repo.FullName},
 	})
 	exitOnError(err, "Could not add remote repo")
+
+	auth := &http.BasicAuth{
+		Username: gitServer.PushUsername,
+		Password: gitServer.PushPassword,
+	}
+
+	err = localRepo.Push(&git.PushOptions{
+		RemoteName: "origin",
+		Auth:       auth,
+	})
+	exitOnError(err, "Could not push argo repo")
+}
+
+func createLocalArgoCDRepo(dir string) (*git.Repository, error) {
+	err := os.MkdirAll(dir, 0755)
+	if err != nil {
+		return nil, fmt.Errorf("could not create repo dir: %w", err)
+	}
+	logger.Info("Created argo repo dir", "dir", dir)
+
+	localRepo, err := git.PlainInit(dir, false)
+	if err != nil {
+		return nil, fmt.Errorf("could not init repo: %w", err)
+	}
+	logger.Info("Initialised argo local repo")
 
 	copyAppOfAppResources(dir)
 
@@ -104,18 +125,11 @@ func initArgoExec(cmd *cobra.Command, args []string) {
 			When:  time.Now(),
 		},
 	})
-	exitOnError(err, "Could not create initial commit")
-
-	auth := &http.BasicAuth{
-		Username: gitServer.PushUsername,
-		Password: gitServer.PushPassword,
+	if err != nil {
+		return nil, fmt.Errorf("could not create initial commit: %w", err)
 	}
 
-	err = localRepo.Push(&git.PushOptions{
-		RemoteName: "origin",
-		Auth:       auth,
-	})
-	exitOnError(err, "Could not push argo repo")
+	return localRepo, nil
 }
 
 func copyAppOfAppResources(dir string) error {
