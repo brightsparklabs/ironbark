@@ -65,6 +65,7 @@ func Execute() {
 	rootCmd.AddCommand(nestedZarfCmd)
 
 	rootCmd.AddCommand(newArgoCmd())
+	rootCmd.AddCommand(newInitCmd())
 
 	err := rootCmd.Execute()
 	if err != nil {
