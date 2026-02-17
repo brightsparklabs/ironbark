@@ -4,12 +4,13 @@ Copyright © 2026 brightSPARK Labs <www.brightsparklabs.com>
 package cmd
 
 import (
-	"bytes"
 	"fmt"
 
 	"brightsparklabs.com/ironbark/internal/zarf"
-	"brightsparklabs.com/ironbark/resources"
 	"github.com/spf13/cobra"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	v1ac "k8s.io/client-go/applyconfigurations/core/v1"
 )
 
 func newInitCmd() *cobra.Command {
@@ -23,10 +24,10 @@ func newInitCmd() *cobra.Command {
 }
 
 func initExec(cmd *cobra.Command, args []string) {
-	secret, err := generateArgoRepoSecret()
-	exitOnError(err, "Could not generate ArgoCD repository secret")
+	err := addArgoRepoSecret(cmd)
+	exitOnError(err, "Could not add ArgoCD repository secret to k8s")
 
-	logger.Info("Generated ArgoCD repository secret", "secret", secret)
+	logger.Info("Successfully added ArgoCD repository secret to k8s")
 }
 
 type UsernamePassword struct {
@@ -34,23 +35,32 @@ type UsernamePassword struct {
 	Password string
 }
 
-func generateArgoRepoSecret() (string, error) {
+func addArgoRepoSecret(cmd *cobra.Command) error {
 	registryInfo, err := zarf.GetRegistryInfo()
 	if err != nil {
-		return "", fmt.Errorf("could not load zarf registry info: %w", err)
+		return fmt.Errorf("could not load zarf registry info: %w", err)
 	}
 
-	secretTemplate, err := resources.LoadArgoRepoSecretTemplate()
+	secret := v1ac.Secret("zarf-helm-oci", "bsl-baseline-argocd").
+		WithLabels(map[string]string{
+			"argocd.argoproj.io/secret-type": "repository",
+			"zarf.dev/agent":                 "ignore",
+		}).
+		WithData(map[string][]byte{
+			"url":                  []byte("zarf-docker-registry.zarf.svc.cluster.local/ironbark-helm-charts"),
+			"username":             []byte(registryInfo.PullUsername),
+			"password":             []byte(registryInfo.PullPassword),
+			"type":                 []byte("helm"),
+			"enableOCI":            []byte("true"),
+			"insecure":             []byte("true"),
+			"insecureOCIForceHttp": []byte("true"),
+		})
+
+	zarfCluster, err := zarf.GetCluster()
 	if err != nil {
-		return "", fmt.Errorf("could not load argo repo secret template : %w", err)
+		return fmt.Errorf("could not load zarf cluster: %w", err)
 	}
-
-	var buffer bytes.Buffer
-	err = secretTemplate.Execute(&buffer, UsernamePassword{Username: registryInfo.PullUsername, Password: registryInfo.PullPassword})
-	if err != nil {
-		return "", fmt.Errorf("could not populate argo repo secret template : %w", err)
-	}
-
-	result := buffer.String()
-	return result, nil
+	_, err = zarfCluster.Clientset.CoreV1().Secrets(*secret.Namespace).Apply(
+		cmd.Context(), secret, metav1.ApplyOptions{Force: true, FieldManager: "ironbark"})
+	return err
 }

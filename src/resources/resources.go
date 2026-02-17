@@ -28,8 +28,3 @@ func loadTemplate(file string) (*template.Template, error) {
 
 	return tmpl, nil
 }
-
-// Loads the ArgoCD repository secret template. The populated template can then be applied to create the k8s secret.
-func LoadArgoRepoSecretTemplate() (*template.Template, error) {
-	return loadTemplate("resources/templates/argo-repo-secret.yaml.tpl")
-}
