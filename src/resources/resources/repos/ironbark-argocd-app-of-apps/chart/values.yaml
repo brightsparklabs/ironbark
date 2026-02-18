@@ -7,7 +7,7 @@
  ##
 
 applications:
-  - name: ironbark-podinfo
+  - name: bsl-ironbark-podinfo
     chart:
       name: stefanprodan/charts/podinfo
       targetRevision: 6.4.0
@@ -22,5 +22,7 @@ config:
       server: https://kubernetes.default.svc
     source:
       # URL of OCI registry. NOTE: Do *not* include 'oci://' prefix.
-      ociUrl: zarf-docker-registry.zarf.svc.cluster.local:5000/
+      ociUrl: internal-tls-proxy.bsl-ironbark-internal-tls-proxy.svc.cluster.local
+      # TODO: Switch to internal once forcing HTTP works.
+      #ociUrl: zarf-docker-registry.zarf.svc.cluster.local:5000
       valuesRepoURL: http://zarf-gitea-http.zarf.svc.cluster.local:3000/zarf-git-user/ironbark-argocd-app-of-apps.git

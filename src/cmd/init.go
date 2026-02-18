@@ -25,9 +25,9 @@ func newInitCmd() *cobra.Command {
 
 func initExec(cmd *cobra.Command, args []string) {
 	err := addArgoRepoSecret(cmd)
-	exitOnError(err, "Could not add ArgoCD repository secret to k8s")
+	exitOnError(err, "Could not add ArgoCD repository secrets")
 
-	logger.Info("Successfully added ArgoCD repository secret to k8s")
+	logger.Info("Successfully added ArgoCD repository secrets")
 }
 
 func addArgoRepoSecret(cmd *cobra.Command) error {
@@ -47,7 +47,8 @@ func addArgoRepoSecret(cmd *cobra.Command) error {
 		return fmt.Errorf("could not load zarf git server info: %w", err)
 	}
 
-	helmSecret := v1ac.Secret("repository-zarf-helm-oci", "bsl-ironbark-argocd").
+	logger.Info("Adding Helm OCI HTTP", "url", "repository-zarf-helm-oci-http")
+	helmSecret := v1ac.Secret("repository-zarf-helm-oci-http", "bsl-ironbark-argocd").
 		WithLabels(map[string]string{
 			"argocd.argoproj.io/secret-type": "repository",
 			"zarf.dev/agent":                 "ignore",
@@ -59,6 +60,7 @@ func addArgoRepoSecret(cmd *cobra.Command) error {
 			"type":                 []byte("helm"),
 			"enableOCI":            []byte("true"),
 			"insecure":             []byte("true"),
+			// TODO: Does not seem to do anything.
 			"insecureOCIForceHttp": []byte("true"),
 		})
 	_, err = zarfCluster.Clientset.CoreV1().Secrets(*helmSecret.Namespace).Apply(
@@ -67,6 +69,27 @@ func addArgoRepoSecret(cmd *cobra.Command) error {
 		return fmt.Errorf("could not create ArgoCD zarf registry secret: %w", err)
 	}
 
+	logger.Info("Adding Helm OCI HTTPS", "url", "internal-tls-proxy.bsl-ironbark-internal-tls-proxy.svc.cluster.local")
+	helmTlsSecret := v1ac.Secret("repository-zarf-helm-oci-https", "bsl-ironbark-argocd").
+		WithLabels(map[string]string{
+			"argocd.argoproj.io/secret-type": "repository",
+			"zarf.dev/agent":                 "ignore",
+		}).
+		WithData(map[string][]byte{
+			"url":                  []byte("internal-tls-proxy.bsl-ironbark-internal-tls-proxy.svc.cluster.local"),
+			"username":             []byte(registryInfo.PullUsername),
+			"password":             []byte(registryInfo.PullPassword),
+			"type":                 []byte("helm"),
+			"enableOCI":            []byte("true"),
+			"insecure":             []byte("true"),
+		})
+	_, err = zarfCluster.Clientset.CoreV1().Secrets(*helmTlsSecret.Namespace).Apply(
+		cmd.Context(), helmTlsSecret, metav1.ApplyOptions{Force: true, FieldManager: "ironbark"})
+	if err != nil {
+		return fmt.Errorf("could not create ArgoCD zarf registry secret: %w", err)
+	}
+
+	logger.Info("Adding Git HTTP", "url", "http://zarf-gitea-http.zarf.svc.cluster.local:3000/zarf-git-user/ironbark-argocd-app-of-apps")
 	gitSecret := v1ac.Secret("repository-zarf-git-http", "bsl-ironbark-argocd").
 		WithLabels(map[string]string{
 			"argocd.argoproj.io/secret-type": "repository",
