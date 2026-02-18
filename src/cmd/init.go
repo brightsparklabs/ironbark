@@ -32,18 +32,28 @@ func initExec(cmd *cobra.Command, args []string) {
 
 func addArgoRepoSecret(cmd *cobra.Command) error {
 	ctx := cmd.Context()
+	zarfCluster, err := zarf.GetCluster(ctx)
+	if err != nil {
+		return fmt.Errorf("could not load zarf cluster: %w", err)
+	}
+
 	registryInfo, err := zarf.GetRegistryInfo(ctx)
 	if err != nil {
 		return fmt.Errorf("could not load zarf registry info: %w", err)
 	}
 
-	secret := v1ac.Secret("zarf-helm-oci", "bsl-ironbark-argocd").
+	gitInfo, err := zarf.GetGitServerInfo(ctx)
+	if err != nil {
+		return fmt.Errorf("could not load zarf git server info: %w", err)
+	}
+
+	helmSecret := v1ac.Secret("repository-zarf-helm-oci", "bsl-ironbark-argocd").
 		WithLabels(map[string]string{
 			"argocd.argoproj.io/secret-type": "repository",
 			"zarf.dev/agent":                 "ignore",
 		}).
 		WithData(map[string][]byte{
-			"url":                  []byte("zarf-docker-registry.zarf.svc.cluster.local:5000/ironbark-helm-charts"),
+			"url":                  []byte("zarf-docker-registry.zarf.svc.cluster.local:5000"),
 			"username":             []byte(registryInfo.PullUsername),
 			"password":             []byte(registryInfo.PullPassword),
 			"type":                 []byte("helm"),
@@ -51,12 +61,28 @@ func addArgoRepoSecret(cmd *cobra.Command) error {
 			"insecure":             []byte("true"),
 			"insecureOCIForceHttp": []byte("true"),
 		})
-
-	zarfCluster, err := zarf.GetCluster(ctx)
+	_, err = zarfCluster.Clientset.CoreV1().Secrets(*helmSecret.Namespace).Apply(
+		cmd.Context(), helmSecret, metav1.ApplyOptions{Force: true, FieldManager: "ironbark"})
 	if err != nil {
-		return fmt.Errorf("could not load zarf cluster: %w", err)
+		return fmt.Errorf("could not create ArgoCD zarf registry secret: %w", err)
 	}
-	_, err = zarfCluster.Clientset.CoreV1().Secrets(*secret.Namespace).Apply(
-		cmd.Context(), secret, metav1.ApplyOptions{Force: true, FieldManager: "ironbark"})
-	return err
+
+	gitSecret := v1ac.Secret("repository-zarf-git-http", "bsl-ironbark-argocd").
+		WithLabels(map[string]string{
+			"argocd.argoproj.io/secret-type": "repository",
+			"zarf.dev/agent":                 "ignore",
+		}).
+		WithData(map[string][]byte{
+			"url":      []byte("http://zarf-gitea-http.zarf.svc.cluster.local:3000/zarf-git-user/ironbark-argocd-app-of-apps"),
+			"username": []byte(gitInfo.PushUsername),
+			"password": []byte(gitInfo.PushPassword),
+			"type":     []byte("git"),
+		})
+	_, err = zarfCluster.Clientset.CoreV1().Secrets(*helmSecret.Namespace).Apply(
+		cmd.Context(), gitSecret, metav1.ApplyOptions{Force: true, FieldManager: "ironbark"})
+	if err != nil {
+		return fmt.Errorf("could not create ArgoCD zarf git server secret: %w", err)
+	}
+
+	return nil
 }

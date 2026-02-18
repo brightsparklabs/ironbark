@@ -65,7 +65,7 @@ func initArgoExec(cmd *cobra.Command, args []string) {
 	giteaClient, err := gitea.NewClient(tunnelURLs[0], giteaOptions)
 	exitOnError(err, "Could create client connection to git server")
 
-	repoName := "ironbark-argo"
+	repoName := "ironbark-argocd-app-of-apps"
 	repo, _, err := giteaClient.GetRepo(gitServer.PushUsername, repoName)
 	if repo.Owner != nil {
 		logger.Error("Ironbark has already initialised the ArgoCD repository as it exists on git server. Delete it if it needs to be re-initialised.", "repository", repoName)
@@ -74,7 +74,7 @@ func initArgoExec(cmd *cobra.Command, args []string) {
 
 	repoOptions := gitea.CreateRepoOption{
 		Name:        repoName,
-		Description: "Ironbark created Argo app of apps repo",
+		Description: "Ironbark created ArgoCD app of apps repo",
 		// These do not seem to be picked up.
 		Private: false,
 		Readme:  "Created by Ironbark",
@@ -137,6 +137,6 @@ func createLocalArgoCDRepo(dir string) (*git.Repository, error) {
 }
 
 func copyAppOfAppResources(dir string) error {
-	err := resources.Copy("resources/argo-repo", dir)
+	err := resources.Copy("resources/repos/ironbark-argocd-app-of-apps", dir)
 	return err
 }
