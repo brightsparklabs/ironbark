@@ -1,0 +1,21 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ironbark-argocd-app-of-apps
+  namespace: bsl-ironbark-argocd
+  labels:
+    zarf.dev/agent: ignore
+
+spec:
+  project: default
+  sources:
+    - repoURL: http://zarf-gitea-http.zarf.svc.cluster.local:3000/zarf-git-user/ironbark-argocd-app-of-apps.git
+      path: chart
+      targetRevision: HEAD
+  syncPolicy:
+    automated: { }
+    syncOptions:
+      - CreateNamespace=true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: bsl-ironbark-argocd

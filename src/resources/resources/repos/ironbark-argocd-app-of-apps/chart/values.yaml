@@ -1,0 +1,26 @@
+##
+ # Helm values for 'ironbark-app-of-apps' chart.
+ # ______________________________________________________________________________
+ #
+ # Maintained by brightSPARK Labs.
+ # www.brightsparklabs.com
+ ##
+
+applications:
+  - name: ironbark-podinfo
+    chart:
+      name: stefanprodan/charts/podinfo
+      targetRevision: 6.4.0
+    values:
+      path: values/podinfo/values-blue.yaml
+      #path: values/podinfo/values-green.yaml
+      targetRevision: HEAD
+
+config:
+  spec:
+    destination:
+      server: https://kubernetes.default.svc
+    source:
+      # URL of OCI registry. NOTE: Do *not* include 'oci://' prefix.
+      ociUrl: zarf-docker-registry.zarf.svc.cluster.local:5000/
+      valuesRepoURL: http://zarf-gitea-http.zarf.svc.cluster.local:3000/zarf-git-user/ironbark-argocd-app-of-apps.git

@@ -1,0 +1,37 @@
+{{- range .Values.applications }}
+{{- $config := $.Values.config -}}
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ .name }}
+  namespace: bsl-ironbark-argocd
+  labels:
+    zarf.dev/agent: ignore
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
+spec:
+  destination:
+    namespace: {{ .namespace | default .name | quote }}
+    server: {{ $config.spec.destination.server | quote }}
+  project: default
+  sources:
+    # Source the chart from the Ironbark OCI registry.
+    - repoURL: {{ $config.spec.source.ociUrl }}
+      targetRevision: {{ .chart.targetRevision }}
+      chart:  {{ .chart.name }}
+      helm:
+        valueFiles:
+        - $values/{{ .values.path }}
+    # Chart values are sourced from the `ironbark-argocd-app-of-apps` repo.
+    # Defined as a separate source to allow for different `targetRevision` to be used.
+    - repoURL: {{ $config.spec.source.valuesRepoURL }}
+      targetRevision: {{ .values.targetRevision }}
+      ref: values
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+    automated:
+      prune: true
+      selfHeal: true
+---
+{{ end -}}
