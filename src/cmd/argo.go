@@ -9,7 +9,9 @@ import (
 	"path/filepath"
 	"time"
 
+	"brightsparklabs.com/ironbark/internal/zarf"
 	"brightsparklabs.com/ironbark/resources"
+
 	"code.gitea.io/sdk/gitea"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
@@ -42,16 +44,10 @@ func newArgoInitCmd() *cobra.Command {
 
 func initArgoExec(cmd *cobra.Command, args []string) {
 	ctx := cmd.Context()
-	zarfCluster, err := zarfcluster.New(ctx)
+	zarfCluster, err := zarf.GetCluster(ctx)
 	exitOnError(err, "Could not retrieve zarf cluster")
 
-	zarfState, err := zarfCluster.LoadState(ctx)
-	exitOnError(err, "Could not retrieve zarf state")
-
-	registryInfo := zarfState.RegistryInfo
-	logger.Info("Retrieved registry info", "registryInfo", registryInfo)
-
-	gitServer := zarfState.GitServer
+	gitServer, err := zarf.GetGitServerInfo(ctx)
 	logger.Info("Retrieved git server", "gitServer", gitServer)
 
 	tunnelGit, err := zarfCluster.NewTunnel(zarfstate.ZarfNamespaceName, zarfcluster.SvcResource, zarfcluster.ZarfGitServerName, "", 0, zarfcluster.ZarfGitServerPort)
@@ -62,24 +58,32 @@ func initArgoExec(cmd *cobra.Command, args []string) {
 	tunnelURLs := tunnelGit.HTTPEndpoints()
 	if len(tunnelURLs) == 0 {
 		logger.Error("No zarf git tunnel HTTP endpoints available")
-		panic(1)
+		return
 	}
 
 	giteaOptions := gitea.SetBasicAuth(gitServer.PushUsername, gitServer.PushPassword)
 	giteaClient, err := gitea.NewClient(tunnelURLs[0], giteaOptions)
+	exitOnError(err, "Could create client connection to git server")
+
+	repoName := "ironbark-argo"
+	repo, _, err := giteaClient.GetRepo(gitServer.PushUsername, repoName)
+	if repo.Owner != nil {
+		logger.Error("Ironbark has already initialised the ArgoCD repository as it exists on git server. Delete it if it needs to be re-initialised.", "repository", repoName)
+		return
+	}
+
 	repoOptions := gitea.CreateRepoOption{
-		Name:        "ironbark-argo",
+		Name:        repoName,
 		Description: "Ironbark created Argo app of apps repo",
 		// These do not seem to be picked up.
 		Private: false,
 		Readme:  "Created by Ironbark",
 	}
-	repo, response, err := giteaClient.CreateRepo(repoOptions)
-	logger.Info("Created repo", "repo", repo)
-	logger.Info("Got response", "response", response.Body)
+	repo, _, err = giteaClient.CreateRepo(repoOptions)
+	logger.Info("Created repo", "url", repo.HTMLURL)
 
 	reposDir := filepath.Join(getDataDir(), "repos")
-	dir := filepath.Join(reposDir, "ironbark-argo")
+	dir := filepath.Join(reposDir, repoName)
 	localRepo, err := createLocalArgoCDRepo(dir)
 	exitOnError(err, "Could not create local ArgoCD repo")
 

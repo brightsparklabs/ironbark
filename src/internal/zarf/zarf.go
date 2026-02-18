@@ -19,13 +19,17 @@ var logger = slog.New(jsonHandler)
 var zarfCluster *zarfcluster.Cluster
 var zarfState *zarfstate.State
 
-func GetCluster() (*zarfcluster.Cluster, error) {
+func GetCluster(ctx context.Context) (*zarfcluster.Cluster, error) {
+	if ctx == nil {
+		ctx = context.TODO()
+	}
+
 	logger.Debug("Getting zarf cluster ...")
 	if zarfCluster != nil {
 		return zarfCluster, nil
 	}
 
-	zarfCluster, err := zarfcluster.New(context.TODO())
+	zarfCluster, err := zarfcluster.New(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("could not retrieve zarf cluster: %w", err)
 	}
@@ -33,18 +37,22 @@ func GetCluster() (*zarfcluster.Cluster, error) {
 	return zarfCluster, nil
 }
 
-func GetState() (*zarfstate.State, error) {
+func GetState(ctx context.Context) (*zarfstate.State, error) {
+	if ctx == nil {
+		ctx = context.TODO()
+	}
+
 	logger.Debug("Getting zarf state ...")
 	if zarfState != nil {
 		return zarfState, nil
 	}
 
-	zarfCluster, err := GetCluster()
+	zarfCluster, err := GetCluster(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("could not retrieve zarf cluster: %w", err)
 	}
 
-	zarfState, err := zarfCluster.LoadState(context.TODO())
+	zarfState, err := zarfCluster.LoadState(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("could not retrieve zarf state: %w", err)
 	}
@@ -52,18 +60,18 @@ func GetState() (*zarfstate.State, error) {
 	return zarfState, nil
 }
 
-func GetRegistryInfo() (*zarfstate.RegistryInfo, error) {
+func GetRegistryInfo(ctx context.Context) (*zarfstate.RegistryInfo, error) {
 	logger.Debug("Getting zarf registry info...")
-	zarfState, err := GetState()
+	zarfState, err := GetState(ctx)
 	if err != nil {
 		return nil, err
 	}
 	return &zarfState.RegistryInfo, nil
 }
 
-func GetGitServerInfo() (*zarfstate.GitServerInfo, error) {
+func GetGitServerInfo(ctx context.Context) (*zarfstate.GitServerInfo, error) {
 	logger.Debug("Getting zarf git server info...")
-	zarfState, err := GetState()
+	zarfState, err := GetState(ctx)
 	if err != nil {
 		return nil, err
 	}

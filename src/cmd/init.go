@@ -31,7 +31,8 @@ func initExec(cmd *cobra.Command, args []string) {
 }
 
 func addArgoRepoSecret(cmd *cobra.Command) error {
-	registryInfo, err := zarf.GetRegistryInfo()
+	ctx := cmd.Context()
+	registryInfo, err := zarf.GetRegistryInfo(ctx)
 	if err != nil {
 		return fmt.Errorf("could not load zarf registry info: %w", err)
 	}
@@ -51,7 +52,7 @@ func addArgoRepoSecret(cmd *cobra.Command) error {
 			"insecureOCIForceHttp": []byte("true"),
 		})
 
-	zarfCluster, err := zarf.GetCluster()
+	zarfCluster, err := zarf.GetCluster(ctx)
 	if err != nil {
 		return fmt.Errorf("could not load zarf cluster: %w", err)
 	}
