@@ -30,24 +30,19 @@ func initExec(cmd *cobra.Command, args []string) {
 	logger.Info("Successfully added ArgoCD repository secret to k8s")
 }
 
-type UsernamePassword struct {
-	Username string
-	Password string
-}
-
 func addArgoRepoSecret(cmd *cobra.Command) error {
 	registryInfo, err := zarf.GetRegistryInfo()
 	if err != nil {
 		return fmt.Errorf("could not load zarf registry info: %w", err)
 	}
 
-	secret := v1ac.Secret("zarf-helm-oci", "bsl-baseline-argocd").
+	secret := v1ac.Secret("zarf-helm-oci", "bsl-ironbark-argocd").
 		WithLabels(map[string]string{
 			"argocd.argoproj.io/secret-type": "repository",
 			"zarf.dev/agent":                 "ignore",
 		}).
 		WithData(map[string][]byte{
-			"url":                  []byte("zarf-docker-registry.zarf.svc.cluster.local/ironbark-helm-charts"),
+			"url":                  []byte("zarf-docker-registry.zarf.svc.cluster.local:5000/ironbark-helm-charts"),
 			"username":             []byte(registryInfo.PullUsername),
 			"password":             []byte(registryInfo.PullPassword),
 			"type":                 []byte("helm"),

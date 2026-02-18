@@ -7,8 +7,8 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	"log/slog"
 	zarfcmd "github.com/zarf-dev/zarf/src/cmd"
+	"log/slog"
 )
 
 const envCliName = "IRONBARK_CLI_NAME"
