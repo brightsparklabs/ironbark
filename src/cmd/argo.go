@@ -107,6 +107,6 @@ func createLocalArgoCDRepo(dir string) (*git.Repository, error) {
 }
 
 func copyAppOfAppResources(dir string) error {
-	err := resources.Copy("resources/repos/ironbark-argocd-app-of-apps", dir)
+	err := resources.Copy("repos/ironbark-argocd-app-of-apps", dir)
 	return err
 }

@@ -6,8 +6,12 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 
 	"brightsparklabs.com/ironbark/internal/zarf"
+	"brightsparklabs.com/ironbark/resources"
 	"github.com/spf13/cobra"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -18,15 +22,26 @@ func newInitCmd() *cobra.Command {
 	initCmd := &cobra.Command{
 		Use:   "init",
 		Short: "Initialises Ironbark components",
-		Run:   initExec,
 	}
 
+	initCmd.AddCommand(newInitAll())
 	initCmd.AddCommand(newInitArgoSecretsCmd())
+	initCmd.AddCommand(newInitArgoStartCmd())
 
 	return initCmd
 }
 
-func initExec(cmd *cobra.Command, args []string) {
+func newInitAll() *cobra.Command {
+	initCmd := &cobra.Command{
+		Use:   "all",
+		Short: "Initialises all Ironbark components",
+		Run:   execInitAll,
+	}
+
+	return initCmd
+}
+
+func execInitAll(cmd *cobra.Command, args []string) {
 	logger.Info("Initialising Ironbark components ...")
 
 	addArgoRepoSecret(cmd.Context())
@@ -38,13 +53,13 @@ func newInitArgoSecretsCmd() *cobra.Command {
 	initCmd := &cobra.Command{
 		Use:   "argocd-repo-secrets",
 		Short: "Initialises Ironbark ArgoCD repository secrets",
-		Run:   initArgoSecrets,
+		Run:   execInitArgoSecrets,
 	}
 
 	return initCmd
 }
 
-func initArgoSecrets(cmd *cobra.Command, args []string) {
+func execInitArgoSecrets(cmd *cobra.Command, args []string) {
 	logger.Info("Adding ArgoCD repository secrets ...")
 	err := addArgoRepoSecret(cmd.Context())
 	exitOnError(err, "Could not add ArgoCD repository secrets")
@@ -128,4 +143,34 @@ func addArgoRepoSecret(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func newInitArgoStartCmd() *cobra.Command {
+	initCmd := &cobra.Command{
+		Use:   "argocd-start",
+		Short: "Dpeloys ArgoCD app of apps to start syncing state",
+		Run:   execInitArgoStart,
+	}
+
+	return initCmd
+}
+
+func execInitArgoStart(cmd *cobra.Command, args []string) {
+	logger.Info("Deploying and starting ArgoCD app of apps ...")
+
+	dir, err := os.MkdirTemp("", "ironbark-")
+	exitOnError(err, "Could not create temporary file for ArgoCD App of Apps definition")
+	defer os.RemoveAll(dir)
+
+	definitionFilename := "bootstrap-argocd-app-of-apps.yaml"
+	definitionFile := filepath.Join(dir, definitionFilename)
+	err = resources.Copy(definitionFilename, definitionFile)
+	exitOnError(err, "Could not extract ArgoCD App of Apps definition")
+
+	command := exec.Command("kubectl", "apply", "-f", definitionFile)
+	output, err := command.Output()
+	exitOnError(err, "Could not apply ArgoCD App of Apps definition")
+
+	fmt.Println(string(output))
+	logger.Info("Successfully deployed ArgoCD app of apps")
 }
