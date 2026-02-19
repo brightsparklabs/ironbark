@@ -6,7 +6,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
 
 	"brightsparklabs.com/ironbark/internal/constants"
@@ -49,14 +48,15 @@ func newPushCmd() *cobra.Command {
 	return cmd
 }
 
+// pushExec pushed the local ArgoCD app of apps repo to the internal Git server.
 func pushExec(cmd *cobra.Command, args []string) {
-	reposDir := filepath.Join(getDataDir(), "repos")
-	dir := filepath.Join(reposDir, constants.ArgoCDRepoName)
-	logger.Info("Pushing ArgoCD repo ...", "localDir", dir)
-	err := ironbarkGit.PushRepoArgoCDAppOfApps(cmd.Context(), dir)
-	exitOnError(err, "Could not push repo `"+dir+"`")
+	argoCDRepoDir := constants.GetArgoCDRepoDir()
+	logger.Info("Pushing ArgoCD repo ...", "localDir", argoCDRepoDir)
+	err := ironbarkGit.PushRepoArgoCDAppOfApps(cmd.Context(), argoCDRepoDir)
+	exitOnError(err, "Could not push repo `"+argoCDRepoDir+"`")
 }
 
+// initArgoExec initialises the local ArgoCD app of apps repo and pushes it to the internal Git server.
 func initArgoExec(cmd *cobra.Command, args []string) {
 	repoName := constants.ArgoCDRepoName
 	logger.Info("Creating ArgoCD repo ...", "repo", repoName)
@@ -66,15 +66,15 @@ func initArgoExec(cmd *cobra.Command, args []string) {
 	exitOnError(err, "Could not create remote ArgoCD repo")
 	logger.Info("Successfully created repo", "url", repo.HTMLURL)
 
-	reposDir := filepath.Join(getDataDir(), "repos")
-	dir := filepath.Join(reposDir, repoName)
-	_, err = createLocalArgoCDRepo(dir)
+	argoCDRepoDir := constants.GetArgoCDRepoDir()
+	_, err = createLocalArgoCDRepo(argoCDRepoDir)
 	exitOnError(err, "Could not create local ArgoCD repo")
 
-	err = ironbarkGit.PushRepoArgoCDAppOfApps(ctx, dir)
+	err = ironbarkGit.PushRepoArgoCDAppOfApps(ctx, argoCDRepoDir)
 	exitOnError(err, "Could not push argo repo")
 }
 
+// createLocalArgoCDRepo creates the local ArgoCD app of apps repo in the specified directory.
 func createLocalArgoCDRepo(dir string) (*git.Repository, error) {
 	err := os.MkdirAll(dir, 0755)
 	if err != nil {
@@ -106,6 +106,7 @@ func createLocalArgoCDRepo(dir string) (*git.Repository, error) {
 	return localRepo, nil
 }
 
+// copyAppOfAppResources populates the local ArgoCD app of apps repo directory using the embedded resources template.
 func copyAppOfAppResources(dir string) error {
 	err := resources.Copy("repos/ironbark-argocd-app-of-apps", dir)
 	return err

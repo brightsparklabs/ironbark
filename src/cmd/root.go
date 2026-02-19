@@ -11,38 +11,13 @@ import (
 	"log/slog"
 )
 
-const envCliName = "IRONBARK_CLI_NAME"
-const envDataDir = "IRONBARK_DATA_DIR"
-
 var jsonHandler = slog.NewJSONHandler(os.Stderr, nil)
 var logger = slog.New(jsonHandler)
 
-func getEnvVar(name, defaultValue string) string {
-	value := os.Getenv(name)
-	if value == "" {
-		value = defaultValue
-	}
-	return value
-}
-
-func getCliName() string {
-	return getEnvVar(envCliName, "ironbark")
-}
-
-func getDataDir() string {
-	return getEnvVar(envDataDir, "/tmp/data")
-}
-
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
-	Use: "ironbark",
-	Annotations: map[string]string{
-		cobra.CommandDisplayNameAnnotation: getCliName(),
-	},
+	Use:   "ironbark",
 	Short: "Kubernetes management using the brightSPARK Labs opinionated deployment pattern",
-	// Uncomment the following line if your bare application
-	// has an action associated with it:
-	// Run: func(cmd *cobra.Command, args []string) { },
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
