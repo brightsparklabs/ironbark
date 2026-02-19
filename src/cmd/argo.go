@@ -10,18 +10,12 @@ import (
 	"time"
 
 	"brightsparklabs.com/ironbark/internal/constants"
-	g "brightsparklabs.com/ironbark/internal/git"
-	"brightsparklabs.com/ironbark/internal/zarf"
+	ironbarkGit "brightsparklabs.com/ironbark/internal/git"
 	"brightsparklabs.com/ironbark/resources"
 
-	"code.gitea.io/sdk/gitea"
 	"github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing/object"
-	"github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/spf13/cobra"
-	zarfcluster "github.com/zarf-dev/zarf/src/pkg/cluster"
-	zarfstate "github.com/zarf-dev/zarf/src/pkg/state"
 )
 
 func newArgoCmd() *cobra.Command {
@@ -59,70 +53,25 @@ func pushExec(cmd *cobra.Command, args []string) {
 	reposDir := filepath.Join(getDataDir(), "repos")
 	dir := filepath.Join(reposDir, constants.ArgoCDRepoName)
 	logger.Info("Pushing ArgoCD repo ...", "localDir", dir)
-	err := g.PushRepoArgoCDAppOfApps(cmd.Context(), dir)
+	err := ironbarkGit.PushRepoArgoCDAppOfApps(cmd.Context(), dir)
 	exitOnError(err, "Could not push repo `"+dir+"`")
 }
 
 func initArgoExec(cmd *cobra.Command, args []string) {
+	repoName := constants.ArgoCDRepoName
+	logger.Info("Creating ArgoCD repo ...", "repo", repoName)
+
 	ctx := cmd.Context()
-	zarfCluster, err := zarf.GetCluster(ctx)
-	exitOnError(err, "Could not retrieve zarf cluster")
-
-	gitServer, err := zarf.GetGitServerInfo(ctx)
-	logger.Info("Retrieved git server", "gitServer", gitServer)
-
-	tunnelGit, err := zarfCluster.NewTunnel(zarfstate.ZarfNamespaceName, zarfcluster.SvcResource, zarfcluster.ZarfGitServerName, "", 0, zarfcluster.ZarfGitServerPort)
-	exitOnError(err, "Could not create zarf git tunnel")
-	_, err = tunnelGit.Connect(ctx)
-	exitOnError(err, "Could not connect to zarf git tunnel")
-	defer tunnelGit.Close()
-	tunnelURLs := tunnelGit.HTTPEndpoints()
-	if len(tunnelURLs) == 0 {
-		logger.Error("No zarf git tunnel HTTP endpoints available")
-		return
-	}
-
-	giteaOptions := gitea.SetBasicAuth(gitServer.PushUsername, gitServer.PushPassword)
-	giteaClient, err := gitea.NewClient(tunnelURLs[0], giteaOptions)
-	exitOnError(err, "Could create client connection to git server")
-
-	repoName := "ironbark-argocd-app-of-apps"
-	repo, _, err := giteaClient.GetRepo(gitServer.PushUsername, repoName)
-	if repo.Owner != nil {
-		logger.Error("Ironbark has already initialised the ArgoCD repository as it exists on git server. Delete it if it needs to be re-initialised.", "repository", repoName)
-		return
-	}
-
-	repoOptions := gitea.CreateRepoOption{
-		Name:        repoName,
-		Description: "Ironbark created ArgoCD app of apps repo",
-		// These do not seem to be picked up.
-		Private: false,
-		Readme:  "Created by Ironbark",
-	}
-	repo, _, err = giteaClient.CreateRepo(repoOptions)
-	logger.Info("Created repo", "url", repo.HTMLURL)
+	repo, err := ironbarkGit.CreateRepoArgoCDAppOfApps(ctx)
+	exitOnError(err, "Could not create remote ArgoCD repo")
+	logger.Info("Successfully created repo", "url", repo.HTMLURL)
 
 	reposDir := filepath.Join(getDataDir(), "repos")
 	dir := filepath.Join(reposDir, repoName)
-	localRepo, err := createLocalArgoCDRepo(dir)
+	_, err = createLocalArgoCDRepo(dir)
 	exitOnError(err, "Could not create local ArgoCD repo")
 
-	_, err = localRepo.CreateRemote(&config.RemoteConfig{
-		Name: "origin",
-		URLs: []string{tunnelURLs[0] + "/" + repo.FullName},
-	})
-	exitOnError(err, "Could not add remote repo")
-
-	auth := &http.BasicAuth{
-		Username: gitServer.PushUsername,
-		Password: gitServer.PushPassword,
-	}
-
-	err = localRepo.Push(&git.PushOptions{
-		RemoteName: "origin",
-		Auth:       auth,
-	})
+	err = ironbarkGit.PushRepoArgoCDAppOfApps(ctx, dir)
 	exitOnError(err, "Could not push argo repo")
 }
 
