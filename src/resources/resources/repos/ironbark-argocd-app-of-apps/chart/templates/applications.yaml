@@ -15,16 +15,18 @@ spec:
     server: {{ $config.spec.destination.server | quote }}
   project: default
   sources:
-    # Source the chart from the Ironbark OCI registry.
+    # The OCI registry to source the chart from.
     - repoURL: {{ $config.spec.source.ociUrl }}
       targetRevision: {{ .chart.targetRevision }}
       chart:  {{ .chart.name }}
       helm:
+        # $values is replaced by the repository defined in the sources item below.
         valueFiles:
         - $values/{{ .values.path }}
-    # Chart values are sourced from the `ironbark-argocd-app-of-apps` repo.
+
+    # Git repository to source the Helm values YAML from.
     # Defined as a separate source to allow for different `targetRevision` to be used.
-    - repoURL: {{ $config.spec.source.valuesRepoURL }}
+    - repoURL: {{ .values.repo | default $config.spec.source.valuesRepoURL }}
       targetRevision: {{ .values.targetRevision }}
       ref: values
   syncPolicy:

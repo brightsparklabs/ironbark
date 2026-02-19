@@ -9,12 +9,23 @@
 applications:
   - name: bsl-ironbark-podinfo
     chart:
+      # Chart name as found in the OCI registry.
+      # This will be appended to the `config.spec.source.ociUrl`.
       name: stefanprodan/charts/podinfo
+      # Chart version to deploy.
       targetRevision: 6.4.0
+
     values:
+      # Path to the Helm values YAML file to use.
       path: values/podinfo/values-blue.yaml
+      # Example alternative:
       #path: values/podinfo/values-green.yaml
+
+      # Version of the repo to checkout.
       targetRevision: HEAD
+
+      # Use a custom repo instead of default (`config.spec.source.valuesRepoUrl`).
+      #repo: http://zarf-gitea-http.zarf.svc.cluster.local:3000/zarf-git-user/helm-chart-values.git
 
 config:
   spec:
@@ -25,4 +36,6 @@ config:
       ociUrl: internal-tls-proxy.bsl-ironbark-internal-tls-proxy.svc.cluster.local
       # TODO: Switch to internal once forcing HTTP works.
       #ociUrl: zarf-docker-registry.zarf.svc.cluster.local:5000
+
+      # Default git repository containing Helm values YAML files for the deployed charts.
       valuesRepoURL: http://zarf-gitea-http.zarf.svc.cluster.local:3000/zarf-git-user/ironbark-argocd-app-of-apps.git
