@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"brightsparklabs.com/ironbark/internal/constants"
+	g "brightsparklabs.com/ironbark/internal/git"
 	"brightsparklabs.com/ironbark/internal/zarf"
 	"brightsparklabs.com/ironbark/resources"
 
@@ -29,6 +31,7 @@ func newArgoCmd() *cobra.Command {
 	}
 
 	gitCmd.AddCommand(newArgoInitCmd())
+	gitCmd.AddCommand(newPushCmd())
 
 	return gitCmd
 }
@@ -40,6 +43,24 @@ func newArgoInitCmd() *cobra.Command {
 		Run:   initArgoExec,
 	}
 	return initCmd
+}
+
+func newPushCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "push",
+		Short: "Push the ArgoCD repo to the internal Git server",
+		Run:   pushExec,
+	}
+
+	return cmd
+}
+
+func pushExec(cmd *cobra.Command, args []string) {
+	reposDir := filepath.Join(getDataDir(), "repos")
+	dir := filepath.Join(reposDir, constants.ArgoCDRepoName)
+	logger.Info("Pushing ArgoCD repo ...", "localDir", dir)
+	err := g.PushRepoArgoCDAppOfApps(cmd.Context(), dir)
+	exitOnError(err, "Could not push repo `"+dir+"`")
 }
 
 func initArgoExec(cmd *cobra.Command, args []string) {

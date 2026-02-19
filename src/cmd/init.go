@@ -54,12 +54,12 @@ func addArgoRepoSecret(cmd *cobra.Command) error {
 			"zarf.dev/agent":                 "ignore",
 		}).
 		WithData(map[string][]byte{
-			"url":                  []byte("zarf-docker-registry.zarf.svc.cluster.local:5000"),
-			"username":             []byte(registryInfo.PullUsername),
-			"password":             []byte(registryInfo.PullPassword),
-			"type":                 []byte("helm"),
-			"enableOCI":            []byte("true"),
-			"insecure":             []byte("true"),
+			"url":       []byte("zarf-docker-registry.zarf.svc.cluster.local:5000"),
+			"username":  []byte(registryInfo.PullUsername),
+			"password":  []byte(registryInfo.PullPassword),
+			"type":      []byte("helm"),
+			"enableOCI": []byte("true"),
+			"insecure":  []byte("true"),
 			// TODO: Does not seem to do anything.
 			"insecureOCIForceHttp": []byte("true"),
 		})
@@ -76,12 +76,12 @@ func addArgoRepoSecret(cmd *cobra.Command) error {
 			"zarf.dev/agent":                 "ignore",
 		}).
 		WithData(map[string][]byte{
-			"url":                  []byte("internal-tls-proxy.bsl-ironbark-internal-tls-proxy.svc.cluster.local"),
-			"username":             []byte(registryInfo.PullUsername),
-			"password":             []byte(registryInfo.PullPassword),
-			"type":                 []byte("helm"),
-			"enableOCI":            []byte("true"),
-			"insecure":             []byte("true"),
+			"url":       []byte("internal-tls-proxy.bsl-ironbark-internal-tls-proxy.svc.cluster.local"),
+			"username":  []byte(registryInfo.PullUsername),
+			"password":  []byte(registryInfo.PullPassword),
+			"type":      []byte("helm"),
+			"enableOCI": []byte("true"),
+			"insecure":  []byte("true"),
 		})
 	_, err = zarfCluster.Clientset.CoreV1().Secrets(*helmTlsSecret.Namespace).Apply(
 		cmd.Context(), helmTlsSecret, metav1.ApplyOptions{Force: true, FieldManager: "ironbark"})
