@@ -4,6 +4,7 @@ Copyright © 2026 brightSPARK Labs <www.brightsparklabs.com>
 package cmd
 
 import (
+	"context"
 	"fmt"
 
 	"brightsparklabs.com/ironbark/internal/zarf"
@@ -20,18 +21,37 @@ func newInitCmd() *cobra.Command {
 		Run:   initExec,
 	}
 
+	initCmd.AddCommand(newInitArgoSecretsCmd())
+
 	return initCmd
 }
 
 func initExec(cmd *cobra.Command, args []string) {
-	err := addArgoRepoSecret(cmd)
-	exitOnError(err, "Could not add ArgoCD repository secrets")
+	logger.Info("Initialising Ironbark components ...")
 
+	addArgoRepoSecret(cmd.Context())
+
+	logger.Info("Successfully initialised all Ironbark components")
+}
+
+func newInitArgoSecretsCmd() *cobra.Command {
+	initCmd := &cobra.Command{
+		Use:   "argocd-repo-secrets",
+		Short: "Initialises Ironbark ArgoCD repository secrets",
+		Run:   initArgoSecrets,
+	}
+
+	return initCmd
+}
+
+func initArgoSecrets(cmd *cobra.Command, args []string) {
+	logger.Info("Adding ArgoCD repository secrets ...")
+	err := addArgoRepoSecret(cmd.Context())
+	exitOnError(err, "Could not add ArgoCD repository secrets")
 	logger.Info("Successfully added ArgoCD repository secrets")
 }
 
-func addArgoRepoSecret(cmd *cobra.Command) error {
-	ctx := cmd.Context()
+func addArgoRepoSecret(ctx context.Context) error {
 	zarfCluster, err := zarf.GetCluster(ctx)
 	if err != nil {
 		return fmt.Errorf("could not load zarf cluster: %w", err)
@@ -64,7 +84,7 @@ func addArgoRepoSecret(cmd *cobra.Command) error {
 			"insecureOCIForceHttp": []byte("true"),
 		})
 	_, err = zarfCluster.Clientset.CoreV1().Secrets(*helmSecret.Namespace).Apply(
-		cmd.Context(), helmSecret, metav1.ApplyOptions{Force: true, FieldManager: "ironbark"})
+		ctx, helmSecret, metav1.ApplyOptions{Force: true, FieldManager: "ironbark"})
 	if err != nil {
 		return fmt.Errorf("could not create ArgoCD zarf registry secret: %w", err)
 	}
@@ -84,7 +104,7 @@ func addArgoRepoSecret(cmd *cobra.Command) error {
 			"insecure":  []byte("true"),
 		})
 	_, err = zarfCluster.Clientset.CoreV1().Secrets(*helmTlsSecret.Namespace).Apply(
-		cmd.Context(), helmTlsSecret, metav1.ApplyOptions{Force: true, FieldManager: "ironbark"})
+		ctx, helmTlsSecret, metav1.ApplyOptions{Force: true, FieldManager: "ironbark"})
 	if err != nil {
 		return fmt.Errorf("could not create ArgoCD zarf registry secret: %w", err)
 	}
@@ -102,7 +122,7 @@ func addArgoRepoSecret(cmd *cobra.Command) error {
 			"type":     []byte("git"),
 		})
 	_, err = zarfCluster.Clientset.CoreV1().Secrets(*helmSecret.Namespace).Apply(
-		cmd.Context(), gitSecret, metav1.ApplyOptions{Force: true, FieldManager: "ironbark"})
+		ctx, gitSecret, metav1.ApplyOptions{Force: true, FieldManager: "ironbark"})
 	if err != nil {
 		return fmt.Errorf("could not create ArgoCD zarf git server secret: %w", err)
 	}
