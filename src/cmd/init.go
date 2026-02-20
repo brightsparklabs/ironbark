@@ -9,36 +9,46 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
 
+	"brightsparklabs.com/ironbark/internal/constants"
+	ironbarkGit "brightsparklabs.com/ironbark/internal/git"
 	"brightsparklabs.com/ironbark/internal/zarf"
 	"brightsparklabs.com/ironbark/resources"
-	"github.com/spf13/cobra"
 
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	v1ac "k8s.io/client-go/applyconfigurations/core/v1"
 )
 
+// -----------------------------------------------------------------------------
+// COMMAND: ROOT
+// -----------------------------------------------------------------------------
+
 func newInitCmd() *cobra.Command {
-	initCmd := &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Initialises Ironbark components",
 	}
 
-	initCmd.AddCommand(newInitAll())
-	initCmd.AddCommand(newInitArgoSecretsCmd())
-	initCmd.AddCommand(newInitArgoAppCmd())
+	cmd.AddCommand(newInitAll())
+	cmd.AddCommand(newInitArgoSecretsCmd())
+	cmd.AddCommand(newInitArgoAppOfAppsRepoCmd())
+	cmd.AddCommand(newInitArgoAppCmd())
 
-	return initCmd
+	return cmd
 }
 
 func newInitAll() *cobra.Command {
-	initCmd := &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "all",
 		Short: "Initialises all Ironbark components",
 		Run:   execInitAll,
 	}
 
-	return initCmd
+	return cmd
 }
 
 func execInitAll(cmd *cobra.Command, args []string) {
@@ -46,20 +56,28 @@ func execInitAll(cmd *cobra.Command, args []string) {
 
 	err := initArgoRepoSecrets(cmd.Context())
 	exitOnError(err, "Could not add ArgoCD repository secrets")
+
+	err = initArgoAppOfAppsRepo(cmd.Context())
+	exitOnError(err, "Could not initialise ArgoCD App of Apps repo")
+
 	err = initArgoApp()
 	exitOnError(err, "Could not apply ArgoCD App of Apps definition")
 
 	logger.Info("Successfully initialised all Ironbark components")
 }
 
+// -----------------------------------------------------------------------------
+// COMMAND: argocd-repo-secrets
+// -----------------------------------------------------------------------------
+
 func newInitArgoSecretsCmd() *cobra.Command {
-	initCmd := &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "argocd-repo-secrets",
 		Short: "Initialises Ironbark ArgoCD repository secrets",
 		Run:   execInitArgoSecrets,
 	}
 
-	return initCmd
+	return cmd
 }
 
 func execInitArgoSecrets(cmd *cobra.Command, args []string) {
@@ -148,14 +166,103 @@ func initArgoRepoSecrets(ctx context.Context) error {
 	return nil
 }
 
+// -----------------------------------------------------------------------------
+// COMMAND: argocd-app-of-apps-repo
+// -----------------------------------------------------------------------------
+
+func newInitArgoAppOfAppsRepoCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "argocd-app-of-apps-repo",
+		Short: "Initialises the ArgoCD App of Apps repo on the internal Git server",
+		Run:   execInitArgoAppOfAppsRepo,
+	}
+	return cmd
+}
+
+func execInitArgoAppOfAppsRepo(cmd *cobra.Command, args []string) {
+	logger.Info("Initialising ArgoCD App of Apps repo ...")
+	err := initArgoAppOfAppsRepo(cmd.Context())
+	exitOnError(err, "Could not initialise ArgoCD App of Apps repo")
+	logger.Info("Successfully initialised ArgoCD App of Apps repo")
+}
+
+// initArgoExec initialises the local ArgoCD app of apps repo and pushes it to the internal Git server.
+func initArgoAppOfAppsRepo(ctx context.Context) error {
+	repoName := constants.ArgoCDRepoName
+	logger.Info("Creating ArgoCD repo ...", "repo", repoName)
+
+	repo, err := ironbarkGit.CreateRepoArgoCDAppOfApps(ctx)
+	if err != nil {
+		return fmt.Errorf("could not create remote ArgoCD repo: %w", err)
+	}
+	logger.Info("Successfully created repo", "url", repo.HTMLURL)
+
+	argoCDRepoDir := constants.GetArgoCDRepoDir()
+	_, err = createLocalArgoCDRepo(argoCDRepoDir)
+	exitOnError(err, "")
+	if err != nil {
+		return fmt.Errorf("could not create local ArgoCD repo: %w", err)
+	}
+
+	err = ironbarkGit.PushRepoArgoCDAppOfApps(ctx, argoCDRepoDir)
+	if err != nil {
+		return fmt.Errorf("could not push argo repo: %w", err)
+	}
+	logger.Info("Successfully pushed repo", "url", repo.HTMLURL)
+
+	return nil
+}
+
+// createLocalArgoCDRepo creates the local ArgoCD app of apps repo in the specified directory.
+func createLocalArgoCDRepo(dir string) (*git.Repository, error) {
+	err := os.MkdirAll(dir, 0755)
+	if err != nil {
+		return nil, fmt.Errorf("could not create repo dir: %w", err)
+	}
+	logger.Info("Created argo repo dir", "dir", dir)
+
+	localRepo, err := git.PlainInit(dir, false)
+	if err != nil {
+		return nil, fmt.Errorf("could not init repo: %w", err)
+	}
+	logger.Info("Initialised argo local repo")
+
+	copyAppOfAppResources(dir)
+
+	w, _ := localRepo.Worktree()
+	_, _ = w.Add(".")
+	_, err = w.Commit("Initial commit", &git.CommitOptions{
+		Author: &object.Signature{
+			Name:  "Ironbark",
+			Email: "ironbark@brightsparklabs.dev",
+			When:  time.Now(),
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("could not create initial commit: %w", err)
+	}
+
+	return localRepo, nil
+}
+
+// copyAppOfAppResources populates the local ArgoCD app of apps repo directory using the embedded resources template.
+func copyAppOfAppResources(dir string) error {
+	err := resources.Copy("repos/ironbark-argocd-app-of-apps", dir)
+	return err
+}
+
+// -----------------------------------------------------------------------------
+// COMMAND: argocd-app
+// -----------------------------------------------------------------------------
+
 func newInitArgoAppCmd() *cobra.Command {
-	initCmd := &cobra.Command{
-		Use:   "argocd-start",
-		Short: "Dpeloys ArgoCD app of apps to start syncing state",
+	cmd := &cobra.Command{
+		Use:   "argocd-app",
+		Short: "Deploys ArgoCD app of apps to start syncing state",
 		Run:   execInitArgoApp,
 	}
 
-	return initCmd
+	return cmd
 }
 
 func execInitArgoApp(cmd *cobra.Command, args []string) {

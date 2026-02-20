@@ -7,7 +7,7 @@
  ##
 
 applications:
-  - name: bsl-ironbark-podinfo
+  - name: ironbark-podinfo
     chart:
       # Chart name as found in the OCI registry.
       # This will be appended to the `config.spec.source.ociUrl`.
@@ -18,7 +18,7 @@ applications:
 
     values:
       # Path to the Helm values YAML file to use.
-      path: values/podinfo/values-blue.yaml
+      path: values/ironbark-podinfo/values-blue.yaml
       # Example alternative:
       #path: values/podinfo/values-green.yaml
 
