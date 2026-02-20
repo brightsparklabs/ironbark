@@ -1,0 +1,115 @@
+---
+##
+ # Use Zarf to deploy the ironbark infrastructure.
+ #
+ # Then use ArgoCD to control application deployment.
+ #
+ # Leverage Zarf to mutate the image pull requests so it can pull images locally.
+ #
+ # In order for Zarf to pull images/repositories, the following secrets must be in the namespace:
+ #
+ # 1. `private-registry`.
+ # 2. `private-git-server`.
+ #
+ # These secrets are automatically sync'd into namespaces created by Zarf packages.
+ # However, they will not be present in ones created by ArgoCD.
+ #
+ # The resources in this package ensures the secrets are sync'd into new non-Zarf managed namespaces.
+ #
+ # ______________________________________________________________________________
+ #
+ # Maintained by brightSPARK Labs.
+ # www.brightsparklabs.com
+ ##
+
+apiVersion: external-secrets.io/v1
+kind: ClusterSecretStore
+metadata:
+  name: k8s-store
+spec:
+  provider:
+    kubernetes:
+      # Only allow store to pull from `zarf` namespace.
+      remoteNamespace: zarf
+      server:
+        url: https://kubernetes.default
+        caProvider:
+          type: ConfigMap
+          name: kube-root-ca.crt
+          key: ca.crt
+          namespace: zarf
+      auth:
+        serviceAccount:
+          # The service account automatically created by zarf has the correct permissions.
+          name: zarf
+          namespace: zarf
+
+---
+apiVersion: external-secrets.io/v1
+kind: ClusterExternalSecret
+metadata:
+  name: private-registry
+spec:
+  # The name to be used on the ExternalSecrets.
+  externalSecretName: private-registry-es
+  namespaceSelectors:
+  - matchExpressions:
+    # Ignore namespaces managed by zarf as they already have the secret.
+    - key: app.kubernetes.io/managed-by
+      operator: NotIn
+      values:
+        - zarf
+    # Ignore namespaces have the `zarf.dev/agent` explicity set, as these do not use the zarf registry.
+    - key: zarf.dev/agent
+      operator: DoesNotExist
+  # Cluster External Secret refresh Time.
+  refreshTime: 1h
+  externalSecretSpec:
+    secretStoreRef:
+      name: k8s-store
+      kind: ClusterSecretStore
+    # External Secret Refresh Time.
+    refreshInterval: 10m
+    target:
+      name: private-registry
+      creationPolicy: Owner
+      template:
+        type: kubernetes.io/dockerconfigjson
+        data:
+          .dockerconfigjson: "{{ .dockerconfig | toString }}"
+    data:
+    - secretKey: dockerconfig
+      remoteRef:
+        key: private-registry
+        property: .dockerconfigjson
+
+---
+apiVersion: external-secrets.io/v1
+kind: ClusterExternalSecret
+metadata:
+  name: private-git-server
+spec:
+  # The name to be used on the ExternalSecrets
+  externalSecretName: private-git-server-es
+  namespaceSelectors:
+  - matchExpressions:
+    - key: app.kubernetes.io/managed-by
+      operator: NotIn
+      values:
+        - zarf
+    - key: zarf.dev/agent
+      operator: DoesNotExist
+  # Cluster External Secret refresh Time.
+  refreshTime: 1h
+  externalSecretSpec:
+    secretStoreRef:
+      name: k8s-store
+      kind: ClusterSecretStore
+    # External Secret Refresh Time.
+    refreshInterval: 10m
+    target:
+      name: private-git-server
+      creationPolicy: Owner
+    dataFrom:
+      - extract:
+          key: private-git-server

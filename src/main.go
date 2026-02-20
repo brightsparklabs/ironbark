@@ -1,6 +1,5 @@
 /*
 Copyright © 2026 brightSPARK Labs <www.brightsparklabs.com>
-
 */
 package main
 
