@@ -11,7 +11,7 @@
 kind: ZarfPackageConfig
 metadata:
   name: bsl-ironbark-podinfo
-  version: 0.0.0
+  version: 0.0.1
   description: BSL Ironbark podinfo test chart.
 
 components:
