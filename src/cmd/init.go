@@ -26,7 +26,7 @@ func newInitCmd() *cobra.Command {
 
 	initCmd.AddCommand(newInitAll())
 	initCmd.AddCommand(newInitArgoSecretsCmd())
-	initCmd.AddCommand(newInitArgoStartCmd())
+	initCmd.AddCommand(newInitArgoAppCmd())
 
 	return initCmd
 }
@@ -44,7 +44,10 @@ func newInitAll() *cobra.Command {
 func execInitAll(cmd *cobra.Command, args []string) {
 	logger.Info("Initialising Ironbark components ...")
 
-	addArgoRepoSecret(cmd.Context())
+	err := initArgoRepoSecrets(cmd.Context())
+	exitOnError(err, "Could not add ArgoCD repository secrets")
+	err = initArgoApp()
+	exitOnError(err, "Could not apply ArgoCD App of Apps definition")
 
 	logger.Info("Successfully initialised all Ironbark components")
 }
@@ -61,12 +64,12 @@ func newInitArgoSecretsCmd() *cobra.Command {
 
 func execInitArgoSecrets(cmd *cobra.Command, args []string) {
 	logger.Info("Adding ArgoCD repository secrets ...")
-	err := addArgoRepoSecret(cmd.Context())
+	err := initArgoRepoSecrets(cmd.Context())
 	exitOnError(err, "Could not add ArgoCD repository secrets")
 	logger.Info("Successfully added ArgoCD repository secrets")
 }
 
-func addArgoRepoSecret(ctx context.Context) error {
+func initArgoRepoSecrets(ctx context.Context) error {
 	zarfCluster, err := zarf.GetCluster(ctx)
 	if err != nil {
 		return fmt.Errorf("could not load zarf cluster: %w", err)
@@ -145,32 +148,44 @@ func addArgoRepoSecret(ctx context.Context) error {
 	return nil
 }
 
-func newInitArgoStartCmd() *cobra.Command {
+func newInitArgoAppCmd() *cobra.Command {
 	initCmd := &cobra.Command{
 		Use:   "argocd-start",
 		Short: "Dpeloys ArgoCD app of apps to start syncing state",
-		Run:   execInitArgoStart,
+		Run:   execInitArgoApp,
 	}
 
 	return initCmd
 }
 
-func execInitArgoStart(cmd *cobra.Command, args []string) {
+func execInitArgoApp(cmd *cobra.Command, args []string) {
 	logger.Info("Deploying and starting ArgoCD app of apps ...")
+	err := initArgoApp()
+	exitOnError(err, "Could not apply ArgoCD App of Apps definition")
+	logger.Info("Successfully deployed ArgoCD app of apps")
+}
 
+func initArgoApp() error {
 	dir, err := os.MkdirTemp("", "ironbark-")
-	exitOnError(err, "Could not create temporary file for ArgoCD App of Apps definition")
+	if err != nil {
+		return fmt.Errorf("could not create temporary file for ArgoCD App of Apps definition: %w", err)
+	}
 	defer os.RemoveAll(dir)
 
 	definitionFilename := "bootstrap-argocd-app-of-apps.yaml"
 	definitionFile := filepath.Join(dir, definitionFilename)
 	err = resources.Copy(definitionFilename, definitionFile)
-	exitOnError(err, "Could not extract ArgoCD App of Apps definition")
+	if err != nil {
+		return fmt.Errorf("could not extract ArgoCD App of Apps definition: %w", err)
+	}
 
 	command := exec.Command("kubectl", "apply", "-f", definitionFile)
 	output, err := command.Output()
-	exitOnError(err, "Could not apply ArgoCD App of Apps definition")
+	if err != nil {
+		return fmt.Errorf("could not apply ArgoCD App of Apps definition: %w", err)
+	}
 
 	fmt.Println(string(output))
 	logger.Info("Successfully deployed ArgoCD app of apps")
+	return nil
 }

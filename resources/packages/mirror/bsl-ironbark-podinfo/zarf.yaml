@@ -1,0 +1,35 @@
+##
+ # Zarf package.
+ # ______________________________________________________________________________
+ #
+ # Maintained by brightSPARK Labs.
+ # www.brightsparklabs.com
+ ##
+
+# NOTE: The `images` block is generated via: `zarf -l debug prepare find-images'.
+
+kind: ZarfPackageConfig
+metadata:
+  name: bsl-ironbark-podinfo
+  version: 0.0.0
+  description: BSL Ironbark podinfo test chart.
+
+components:
+  - name: bsl-ironbark-podinfo-oci
+    required: true
+    charts:
+      - name: podinfo
+        # IMPORTANT: Keep this aligned with `src/resources/resources/repos/ironbark-argocd-app-of-apps/chart/values.yaml`.
+        version: 6.10.1
+        namespace: bsl-ironbark-podinfo-oci
+        url: oci://ghcr.io/stefanprodan/charts/podinfo
+    images:
+      - curlimages/curl:7.69.0
+      - ghcr.io/stefanprodan/podinfo:6.10.1
+      - giantswarm/tiny-tools
+      - stefanprodan/grpc_health_probe:v0.3.0
+      # Cosign artifacts for images - bsl-ironbark-podinfo-oci
+      - ghcr.io/stefanprodan/podinfo:sha256-f107b0acc7f9350212571d8eb223ec004f6e20cf22083fc19b112280278827c9.sig
+
+      # IMPORTANT: This line added manually to ensure chart is in OCI registry for ArgoCD.
+      - ghcr.io/stefanprodan/charts/podinfo:6.10.1

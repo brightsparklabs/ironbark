@@ -19,32 +19,31 @@ components:
     required: true
     charts:
       - name: argo-cd
-        version: 9.0.5
+        version: 9.4.2
         namespace: bsl-ironbark-argocd
         url: https://argoproj.github.io/argo-helm
         releaseName: argocd
         valuesFiles:
           - argocd-helm-chart/values.yaml
     images:
-      - docker.io/library/redis:7.2.11-alpine
-      - quay.io/argoproj/argocd:v3.1.9
+      - docker.io/library/redis:8.2.3-alpine
+      - quay.io/argoproj/argocd:v3.3.0
       # Cosign artifacts for images - argocd-helm-chart
-      - quay.io/argoproj/argocd:sha256-9c33285c0b86a66e9cf9fcafc448e48e0ab7c4678b20b3723556bb6cce8ea0b9.sig
-      - quay.io/argoproj/argocd:sha256-9c33285c0b86a66e9cf9fcafc448e48e0ab7c4678b20b3723556bb6cce8ea0b9.att
+      - quay.io/argoproj/argocd:sha256-ed0740273790e58154816104c1e1b41fb308a9c516ade3d0f195fa56f1840cca.att
   - name: eso-chart
     required: true
     charts:
       - name: external-secrets
-        version: 0.20.3
+        version: 2.0.0
         namespace: bsl-ironbark-eso
         url: https://charts.external-secrets.io
         #valuesFiles:
           #- eso-chart/values.yaml
     images:
-      - oci.external-secrets.io/external-secrets/external-secrets:v0.20.3
+      - ghcr.io/external-secrets/external-secrets:v2.0.0
       # Cosign artifacts for images - eso-chart
-      - oci.external-secrets.io/external-secrets/external-secrets:sha256-1d2acb58ac792110ed01e0ece4880ab48b029ee5b1d3c1c22932d82781badfed.sig
-      - oci.external-secrets.io/external-secrets/external-secrets:sha256-1d2acb58ac792110ed01e0ece4880ab48b029ee5b1d3c1c22932d82781badfed.att
+      - ghcr.io/external-secrets/external-secrets:sha256-c56bc9680964058929c95773ca90d517aba93e8d31d20a3af4a80fa8fd3dc28f.sig
+      - ghcr.io/external-secrets/external-secrets:sha256-c56bc9680964058929c95773ca90d517aba93e8d31d20a3af4a80fa8fd3dc28f.att
   - name: sync-zarf-secrets
     description: |
       Ensures the zarf secrets for registry/repo access are available in any namespaces created outside of Zarf.
@@ -64,4 +63,4 @@ components:
           - internal-tls-proxy/manifests.yaml
     images:
       # IMPORTANT: Keep this aligned with `internal-tls-proxy/manifests.yaml`.
-      - caddy:2.10-alpine
+      - caddy:2.11-alpine

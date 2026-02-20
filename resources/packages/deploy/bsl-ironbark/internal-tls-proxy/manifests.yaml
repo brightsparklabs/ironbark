@@ -44,7 +44,7 @@ spec:
       containers:
         - name: caddy
           # IMPORTANT: Keep this aligned with `zarf.yaml`.
-          image: caddy:2.10-alpine
+          image: caddy:2.11-alpine
           volumeMounts:
             - name: internal-tls-proxy-caddyfile
               mountPath: /etc/caddy/Caddyfile

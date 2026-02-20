@@ -13,7 +13,8 @@ applications:
       # This will be appended to the `config.spec.source.ociUrl`.
       name: stefanprodan/charts/podinfo
       # Chart version to deploy.
-      targetRevision: 6.4.0
+      # IMPORTANT: Keep this aligned with `resources/packages/mirror/bsl-ironbark-podinfo/zarf.yaml`.
+      targetRevision: 6.10.1
 
     values:
       # Path to the Helm values YAML file to use.
