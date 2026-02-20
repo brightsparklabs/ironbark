@@ -62,7 +62,7 @@ COPY resources/packages/ .
 RUN \
   for package_type in *; do \
     for package_dir in ${package_type}/*; do \
-      /build/bin/zarf package create "${package_dir}" -o /build/resources/zarf/packages/${package_type}/; \
+      /build/bin/zarf package create "${package_dir}" -o /build/resources/packages/${package_type}/; \
     done \
   done
 
@@ -83,9 +83,18 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o ironbark .
 
 FROM  ${UBUNTU_IMAGE}
 
+ARG IRONBARK_DATA_DIR=/mnt/data
+ARG IRONBARK_INTERNAL_PACKAGES_DIR=/app/resources/packages
+ENV \
+  IRONBARK_DATA_DIR=${IRONBARK_DATA_DIR} \
+  IRONBARK_INTERNAL_PACKAGES_DIR=${IRONBARK_INTERNAL_PACKAGES_DIR} \
+  PATH="/app/bin:${PATH}"
+
 WORKDIR /app
 COPY --from=builder-tooling /build/ .
 COPY --from=builder-golang /build/ironbark bin/
+
+RUN ls -lR /app
 ENTRYPOINT ["/app/bin/ironbark"]
 
 ARG BUILD_DATE

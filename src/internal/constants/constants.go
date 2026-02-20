@@ -27,11 +27,11 @@ const envDataDir = "IRONBARK_DATA_DIR"
 // defaultDataDir is the default directory to store application data in.
 const defaultDataDir = "/tmp/ironbark/data"
 
-// envDataDir is the name of the environment variable which defines the directory to store application data in.
-const envInternalDataDir = "IRONBARK_INTERNAL_DATA_DIR"
+// envDataDir is the name of the environment variable which defines the directory containing internal Ironbark packages.
+const envInternalPackagesDir = "IRONBARK_INTERNAL_PACKAGES_DIR"
 
 // defaultDataDir is the default directory to store application data in.
-const defaultInternalDataDir = "/tmp/ironbark/internal/data"
+const defaultInternalPackagesDir = "/tmp/ironbark/packages"
 
 // -----------------------------------------------------------------------------
 // PUBLIC FUNCTIONS
@@ -42,9 +42,9 @@ func GetDataDir() string {
 	return getEnvVar(envDataDir, defaultDataDir)
 }
 
-// GetInternalDataDir returns the directory to store application data in.
-func GetInternalDataDir() string {
-	return getEnvVar(envInternalDataDir, defaultInternalDataDir)
+// GetInternalPackagesDir returns the directory to store application data in.
+func GetInternalPackagesDir() string {
+	return getEnvVar(envInternalPackagesDir, defaultInternalPackagesDir)
 }
 
 // GetArgoCDRepoDir returns the path to the local ArgoCD app of apps repo directory.

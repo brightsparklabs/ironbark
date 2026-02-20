@@ -92,8 +92,7 @@ func execInitPackages(cmd *cobra.Command, args []string) {
 }
 
 func initPackages() error {
-	internalDataDir := constants.GetInternalDataDir()
-	packagesDir := filepath.Join(internalDataDir, "packages")
+	packagesDir := constants.GetInternalPackagesDir()
 
 	logger.Info("Mirroring packages ...")
 	mirrorPackages := filepath.Join(packagesDir, "mirror")
