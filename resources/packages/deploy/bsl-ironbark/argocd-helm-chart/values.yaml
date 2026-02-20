@@ -1,0 +1,14 @@
+redis-ha:
+  enabled: false
+
+dex:
+  enabled: false
+
+notifications:
+  enabled: false
+
+redis:
+  image:
+    # Ensure we use an open source version of Redis.
+    # Default uses: ecr-public.aws.com/docker/library/redis
+    repository: docker.io/library/redis

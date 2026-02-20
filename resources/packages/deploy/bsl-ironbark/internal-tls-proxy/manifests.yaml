@@ -1,0 +1,67 @@
+##
+ # Some services require TSL when talking to the Docker registry.
+ # This service acts as a proxy to convert HTTPS requests to HTTP when talking to the backend.
+ #
+ # TODO: https://github.com/zarf-dev/zarf/pull/4162 should make this redundant.
+ #
+ # ______________________________________________________________________________
+ #
+ # Maintained by brightSPARK Labs.
+ # www.brightsparklabs.com
+ ##
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: internal-tls-proxy-caddyfile
+data:
+  Caddyfile: |
+    {
+      local_certs
+    }
+
+    https://internal-tls-proxy.bsl-ironbark-internal-tls-proxy.svc.cluster.local {
+      reverse_proxy zarf-docker-registry.zarf.svc.cluster.local:5000 {
+        # The registry will not serve correctly if it knows there is a reverse proxy upstream.
+        # Therefore we need to inject the internal hostname into the request.
+        header_up Host {upstream_host}
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: internal-tls-proxy
+spec:
+  selector:
+    matchLabels:
+      app: internal-tls-proxy
+  template:
+    metadata:
+      labels:
+        app: internal-tls-proxy
+    spec:
+      containers:
+        - name: caddy
+          # IMPORTANT: Keep this aligned with `zarf.yaml`.
+          image: caddy:2.11-alpine
+          volumeMounts:
+            - name: internal-tls-proxy-caddyfile
+              mountPath: /etc/caddy/Caddyfile
+              subPath: Caddyfile
+      volumes:
+        - name: internal-tls-proxy-caddyfile
+          configMap:
+            name: internal-tls-proxy-caddyfile
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: internal-tls-proxy
+spec:
+  selector:
+    app: internal-tls-proxy
+  ports:
+    - protocol: TCP
+      port: 443
+      targetPort: 443

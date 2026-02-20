@@ -1,0 +1,66 @@
+##
+ # Zarf package.
+ # ______________________________________________________________________________
+ #
+ # Maintained by brightSPARK Labs.
+ # www.brightsparklabs.com
+ ##
+
+# NOTE: The `images` block is generated via: `zarf -l debug prepare find-images'.
+
+kind: ZarfPackageConfig
+metadata:
+  name: bsl-ironbark
+  version: 0.0.1
+  description: BSL ironbark services in Kubernetes
+
+components:
+  - name: argocd-helm-chart
+    required: true
+    charts:
+      - name: argo-cd
+        version: 9.4.2
+        namespace: bsl-ironbark-argocd
+        url: https://argoproj.github.io/argo-helm
+        releaseName: argocd
+        valuesFiles:
+          - argocd-helm-chart/values.yaml
+    images:
+      - docker.io/library/redis:8.2.3-alpine
+      - quay.io/argoproj/argocd:v3.3.0
+      # Cosign artifacts for images - argocd-helm-chart
+      - quay.io/argoproj/argocd:sha256-ed0740273790e58154816104c1e1b41fb308a9c516ade3d0f195fa56f1840cca.att
+  - name: eso-chart
+    required: true
+    charts:
+      - name: external-secrets
+        version: 2.0.0
+        namespace: bsl-ironbark-eso
+        url: https://charts.external-secrets.io
+        #valuesFiles:
+          #- eso-chart/values.yaml
+    images:
+      - ghcr.io/external-secrets/external-secrets:v2.0.0
+      # Cosign artifacts for images - eso-chart
+      - ghcr.io/external-secrets/external-secrets:sha256-c56bc9680964058929c95773ca90d517aba93e8d31d20a3af4a80fa8fd3dc28f.sig
+      - ghcr.io/external-secrets/external-secrets:sha256-c56bc9680964058929c95773ca90d517aba93e8d31d20a3af4a80fa8fd3dc28f.att
+  - name: sync-zarf-secrets
+    description: |
+      Ensures the zarf secrets for registry/repo access are available in any namespaces created outside of Zarf.
+    required: true
+    manifests:
+      - name: sync-zarf-secrets
+        files:
+          - sync-zarf-secrets/manifest.yaml
+  - name: internal-tls-proxy
+    description: |
+      Expose internal HTTP services through a HTTPS connection.
+    required: true
+    manifests:
+      - name: internal-tls-proxy
+        namespace: bsl-ironbark-internal-tls-proxy
+        files:
+          - internal-tls-proxy/manifests.yaml
+    images:
+      # IMPORTANT: Keep this aligned with `internal-tls-proxy/manifests.yaml`.
+      - caddy:2.11-alpine
