@@ -33,7 +33,8 @@ func newInitCmd() *cobra.Command {
 		Short: "Initialises Ironbark components",
 	}
 
-	cmd.AddCommand(newInitAll())
+	cmd.AddCommand(newInitAllCmd())
+	cmd.AddCommand(newInitPackagesCmd())
 	cmd.AddCommand(newInitArgoSecretsCmd())
 	cmd.AddCommand(newInitArgoAppOfAppsRepoCmd())
 	cmd.AddCommand(newInitArgoAppCmd())
@@ -41,7 +42,7 @@ func newInitCmd() *cobra.Command {
 	return cmd
 }
 
-func newInitAll() *cobra.Command {
+func newInitAllCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "all",
 		Short: "Initialises all Ironbark components",
@@ -54,7 +55,10 @@ func newInitAll() *cobra.Command {
 func execInitAll(cmd *cobra.Command, args []string) {
 	logger.Info("Initialising Ironbark components ...")
 
-	err := initArgoRepoSecrets(cmd.Context())
+	err := initPackages()
+	exitOnError(err, "Could not initialise Ironbark packages")
+
+	err = initArgoRepoSecrets(cmd.Context())
 	exitOnError(err, "Could not add ArgoCD repository secrets")
 
 	err = initArgoAppOfAppsRepo(cmd.Context())
@@ -64,6 +68,48 @@ func execInitAll(cmd *cobra.Command, args []string) {
 	exitOnError(err, "Could not apply ArgoCD App of Apps definition")
 
 	logger.Info("Successfully initialised all Ironbark components")
+}
+
+// -----------------------------------------------------------------------------
+// COMMAND: packages
+// -----------------------------------------------------------------------------
+
+func newInitPackagesCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "packages",
+		Short: "Deploys and mirrors Ironbark packages",
+		Run:   execInitPackages,
+	}
+
+	return cmd
+}
+
+func execInitPackages(cmd *cobra.Command, args []string) {
+	logger.Info("Initialising packages ...")
+	err := initPackages()
+	exitOnError(err, "Could not initialise packages")
+	logger.Info("Successfully initialised packages")
+}
+
+func initPackages() error {
+	internalDataDir := constants.GetInternalDataDir()
+	packagesDir := filepath.Join(internalDataDir, "packages")
+
+	logger.Info("Mirroring packages ...")
+	mirrorPackages := filepath.Join(packagesDir, "mirror")
+	err := zarf.MirrorPackages(mirrorPackages)
+	if err != nil {
+		return fmt.Errorf("could not mirror packages: %w", err)
+	}
+
+	logger.Info("Deploying packages ...")
+	deployPackages := filepath.Join(packagesDir, "deploy")
+	err = zarf.DeployPackages(deployPackages)
+	if err != nil {
+		return fmt.Errorf("could not deploy packages: %w", err)
+	}
+
+	return nil
 }
 
 // -----------------------------------------------------------------------------

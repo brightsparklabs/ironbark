@@ -6,8 +6,11 @@ package zarf
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
+	"os/exec"
+	"path/filepath"
 
 	zarfcluster "github.com/zarf-dev/zarf/src/pkg/cluster"
 	zarfstate "github.com/zarf-dev/zarf/src/pkg/state"
@@ -76,4 +79,45 @@ func GetGitServerInfo(ctx context.Context) (*zarfstate.GitServerInfo, error) {
 		return nil, err
 	}
 	return &zarfState.GitServer, nil
+}
+
+func DeployPackages(dir string) error {
+	return runPackagesCommand(dir, []string{"deploy", "--confirm"})
+}
+
+func MirrorPackages(dir string) error {
+	return runPackagesCommand(dir, []string{"mirror-resources"})
+}
+
+func runPackagesCommand(dir string, actions []string) error {
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		logger.Warn("Not searching for packages as directory does not exist", "dir", dir)
+		return nil
+	}
+
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+
+		commands := append([]string{"package"}, actions...)
+		commandsWithPath := append(commands, path)
+
+		command := exec.Command("zarf", commandsWithPath...)
+		command.Stdin = os.Stdin
+		command.Stdout = os.Stdout
+		command.Stderr = os.Stderr
+
+		err = command.Run()
+		if err != nil {
+			return fmt.Errorf("could not run `%v %v`: %w", actions[0], path, err)
+		}
+
+		return nil
+	})
+
+	return err
 }
