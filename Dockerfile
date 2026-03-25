@@ -97,16 +97,19 @@ COPY --from=builder-golang /build/ironbark bin/
 RUN ls -lR /app
 ENTRYPOINT ["/app/bin/ironbark"]
 
+ARG APP_VERSION=latest
 ARG BUILD_DATE
 ARG VCS_REF
-LABEL org.label-schema.name="nswcc-deployment" \
-      org.label-schema.description="Image used for k8s deployment" \
+LABEL org.label-schema.name="ironbark" \
+      org.label-schema.description="Kubernetes management using the brightSPARK Labs opinionated deployment pattern" \
       org.opencontainers.image.authors="brightSPARK Labs <enquire@brightsparklabs.com>" \
       org.label-schema.vendor="brightSPARK Labs" \
       org.label-schema.schema-version="1.0.0-rc1" \
-      org.label-schema.vcs-url="https://bitbucket.org/brightsparklabs/nswcc-deployment" \
+      org.label-schema.vcs-url="https://github.com/brightsparklabs/ironbark" \
       org.label-schema.vcs-ref=${VCS_REF} \
       org.label-schema.build-date=${BUILD_DATE}
 ENV \
   META_BUILD_DATE=${BUILD_DATE} \
-  META_VCS_REF=${VCS_REF}
+  META_VCS_REF=${VCS_REF} \
+  APP_VERSION=${APP_VERSION}
+RUN echo ${APP_VERSION} > VERSION

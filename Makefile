@@ -57,6 +57,9 @@ build: ## Remove the build artifacts.
 .PHONY: docker
 docker: ## Build Docker images.
 	docker build \
+		--build-arg APP_VERSION=${APP_VERSION} \
+		--build-arg BUILD_DATE=${BUILD_DATE} \
+		--build-arg VCS_REF=${VCS_REF} \
 		-t docker.brightsparklabs.com/brightsparklabs/${APP_NAME}:${APP_VERSION} \
 		-t docker.brightsparklabs.com/brightsparklabs/${APP_NAME}:latest .
 
@@ -65,4 +68,4 @@ docker-save: docker ## Save Docker images.
 	mkdir -p build/images
 	docker save \
 		docker.brightsparklabs.com/brightsparklabs/${APP_NAME}:${APP_VERSION} \
-		-o build/images/oci-docker.brightsparklabs.com-${APP_NAME}-${APP_VERSION}.tar
+		-o build/images/oci-brightsparklabs-${APP_NAME}-${APP_VERSION}.tar
