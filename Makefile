@@ -16,8 +16,8 @@ SHELL := bash
 
 APP_NAME=ironbark
 APP_VERSION=$(shell git describe --always --dirty)
-# As this is a python project, we want this to be PEP440 compliant.
-APP_VERSION_PYTHON=$(shell echo "${APP_VERSION}" | sed -E 's/^v//; s/-([0-9]+)-g([0-9a-f]+)/.\1+\2/; s/-dirty/.dirty/')
+BUILD_DATE=$(shell date -Isec)
+VCS_REF=$(shell git rev-parse --short HEAD)
 # Format and linter rules to ignore.
 # See https://docs.astral.sh/ruff/rules/
 # Ignore lambda functions.
@@ -47,25 +47,24 @@ format: ## Format the codebase.
 clean: ## Remove the build artifacts.
 	rm -rf ./build/
 
-.PHONY: build
-build: ## Remove the build artifacts.
+build: ../build/bin/ironbark ## Build the application..
 	mkdir -p build/bin
 	cd src \
 		&& go mod download \
 		&& CGO_ENABLED=0 GOOS=linux go build -o ../build/bin/ironbark .
 
-.PHONY: docker
-docker: ## Build Docker images.
+.PHONY: oci-image
+oci-image: ## Build OCI images.
 	docker build \
 		--build-arg APP_VERSION=${APP_VERSION} \
 		--build-arg BUILD_DATE=${BUILD_DATE} \
 		--build-arg VCS_REF=${VCS_REF} \
-		-t docker.brightsparklabs.com/brightsparklabs/${APP_NAME}:${APP_VERSION} \
-		-t docker.brightsparklabs.com/brightsparklabs/${APP_NAME}:latest .
+		-t brightsparklabs/${APP_NAME}:${APP_VERSION} \
+		-t brightsparklabs/${APP_NAME}:latest .
 
-.PHONY: docker-save
-docker-save: docker ## Save Docker images.
+.PHONY: oci-image-save
+oci-image-save: oci-image ## Save OCI images.
 	mkdir -p build/images
 	docker save \
-		docker.brightsparklabs.com/brightsparklabs/${APP_NAME}:${APP_VERSION} \
+		brightsparklabs/${APP_NAME}:${APP_VERSION} \
 		-o build/images/oci-brightsparklabs-${APP_NAME}-${APP_VERSION}.tar
