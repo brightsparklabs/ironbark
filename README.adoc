@@ -214,7 +214,7 @@ To add a new application to your Ironbark deployment:
 +
 [source,bash]
 ----
-cd $IRONBARK_DATA_DIR/repos/ironbark-argocd-app-of-apps
+cd "${IRONBARK_HOST_DATA_DIR}/repos/ironbark-argocd-app-of-apps"
 ----
 
 . Add the application to `chart/values.yaml`:
@@ -256,35 +256,13 @@ ironbark argo push
 
 * Go 1.25.5+
 
-=== Build from Source
-
-[source,bash]
-----
-# Clone the repository.
-git clone https://github.com/brightsparklabs/ironbark.git
-cd ironbark
-
-# Build the binary.
-make build
-
-# Binary will be in build/bin/ironbark.
-./build/bin/ironbark --help
-----
-
-=== Build OCI Image
-
-[source,bash]
-----
-make oci-image
-----
-
 === Project Structure
 
 [source]
 ----
 ironbark/
 ├── src/
-│   ├── cmd/                    # CLI commands
+│   ├── cmd/                   # CLI commands
 │   │   ├── root.go            # Root command and flags
 │   │   ├── init.go            # Initialisation commands
 │   │   └── argo.go            # ArgoCD repository commands
@@ -307,27 +285,23 @@ ironbark/
 └── Makefile                   # Build automation
 ----
 
-=== Building
+=== Setup
 
 [source,bash]
 ----
+# Clone the repository.
+git clone https://github.com/brightsparklabs/ironbark.git
+cd ironbark
+
+# Build zarf packages and extract to development location.
+make oci-image
+id=$(podman create brightsparklabs/ironbark:latest)
+mkdir -p /tmp/ironbark/
+podman cp $id:/app/resources/packages /tmp/ironbark/
+podman rm ${id}
+
 # See all tasks.
 make
-
-# Run tests.
-make test
-
-# Format code.
-make format
-
-# Build binary.
-make build
-
-# Build oci-image image.
-make oci-image
-
-# Clean build artifacts.
-make clean
 ----
 
 === Running Locally
@@ -337,10 +311,6 @@ make clean
 # Run from source.
 cd src
 go run . --help
-
-# Or build and run.
-make build
-./build/bin/ironbark --help
 ----
 
 == Troubleshooting
