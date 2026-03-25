@@ -5,8 +5,11 @@ go 1.25.5
 require (
 	code.gitea.io/sdk/gitea v0.22.1
 	github.com/go-git/go-git/v5 v5.16.4
+	github.com/otiai10/copy v1.14.1
 	github.com/spf13/cobra v1.10.2
 	github.com/zarf-dev/zarf v0.69.0
+	k8s.io/apimachinery v0.34.3
+	k8s.io/client-go v0.34.3
 )
 
 require (
@@ -424,7 +427,6 @@ require (
 	github.com/opencontainers/runtime-spec v1.2.1 // indirect
 	github.com/opencontainers/selinux v1.13.0 // indirect
 	github.com/openvex/go-vex v0.2.7 // indirect
-	github.com/otiai10/copy v1.14.1 // indirect
 	github.com/otiai10/mint v1.6.3 // indirect
 	github.com/owenrumney/go-sarif v1.1.2-0.20231003122901-1000f5e05554 // indirect
 	github.com/package-url/packageurl-go v0.1.3 // indirect
@@ -580,10 +582,8 @@ require (
 	helm.sh/helm/v3 v3.19.4 // indirect
 	k8s.io/api v0.34.3 // indirect
 	k8s.io/apiextensions-apiserver v0.34.2 // indirect
-	k8s.io/apimachinery v0.34.3 // indirect
 	k8s.io/apiserver v0.34.2 // indirect
 	k8s.io/cli-runtime v0.34.3 // indirect
-	k8s.io/client-go v0.34.3 // indirect
 	k8s.io/component-base v0.34.3 // indirect
 	k8s.io/component-helpers v0.34.3 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect

@@ -1,9 +1,405 @@
 = Ironbark
-:toc:
+:toc: left
 :sectnums:
 
-Tooling to support the brightSPARK Labs opinionated deployment pattern.
+image:https://img.shields.io/badge/License-MIT-blue.svg[License: MIT,link=LICENSE]
 
-== Licenses
+Kubernetes management tooling that implements the brightSPARK Labs opinionated deployment pattern using Zarf and ArgoCD.
 
-Refer to the LICENSE file for details.
+== Compatibility
+
+|===
+|Ironbark Version |Zarf Version
+
+|0.x.y |0.64.0
+|===
+
+== Overview
+
+Ironbark is a CLI tool that bootstraps and manages Kubernetes clusters in air-gapped or disconnected environments using:
+
+[horizontal]
+https://zarf.dev/[Zarf]:: For packaging and deploying applications to air-gapped Kubernetes clusters.
+https://argo-cd.readthedocs.io/[ArgoCD]:: For GitOps-based continuous deployment.
+https://argo-cd.readthedocs.io/en/latest/operator-manual/cluster-bootstrapping/#app-of-apps-pattern-alternative[App of Apps Pattern]:: For managing multiple applications declaratively.
+
+Ironbark automates the setup of a complete GitOps workflow in disconnected environments by:
+
+. Deploying core infrastructure components (ArgoCD, External Secrets Operator, etc.).
+. Setting up internal Git and OCI registry access.
+. Configuring ArgoCD to sync applications from internal repositories.
+. Providing a structured way to manage application deployments.
+
+=== Key Features
+
+[horizontal]
+Air-gapped deployment:: Works in completely disconnected environments.
+Zarf integration:: Packages all dependencies for offline installation.
+GitOps ready:: Automated ArgoCD setup with App of Apps pattern.
+Secure by default:: Automated secret management and TLS proxy configuration.
+Opinionated workflow:: Standardised deployment patterns across teams.
+
+== Architecture
+
+Ironbark manages several key components:
+
+[source]
+----
+┌─────────────────────────────────────────────────────────┐
+│                     Kubernetes Cluster                  │
+│                                                         │
+│  ┌────────────┐    ┌──────────────┐   ┌──────────────┐  │
+│  │   ArgoCD   │───▶│  Zarf Git    │   │ Zarf OCI     │  │
+│  │            │    │  Server      │   │ Registry     │  │
+│  └────────────┘    └──────────────┘   └──────────────┘  │
+│        │                                      ▲         │
+│        │ Syncs Apps                           │         │
+│        ▼                                      │         │
+│  ┌────────────────────────────────────────────┴──────┐  │
+│  │  App of Apps Repo (ironbark-argocd-app-of-apps)   │  │
+│  │  ├── chart/                (Helm templates)       │  │
+│  │  └── values/               (App configurations)   │  │
+│  └───────────────────────────────────────────────────┘  │
+│                                                         │
+│  Deployed Applications:                                 │
+│  ├── External Secrets Operator                          │
+│  ├── Internal TLS Proxy                                 │
+│  └── Your Applications (via App of Apps)                │
+└─────────────────────────────────────────────────────────┘
+----
+
+=== Components
+
+[horizontal]
+bsl-ironbark:: Core package containing ArgoCD, External Secrets Operator, and utilities.
+App of Apps Repo:: Git repository containing Helm charts and values for all applications.
+Internal TLS Proxy:: Caddy-based proxy for HTTPS access to internal HTTP services.
+Zarf Secrets Sync:: Ensures Zarf registry/repo credentials are available in all namespaces.
+
+== Installation
+
+=== Prerequisites
+
+* Kubernetes cluster (K3s, etc.).
+* `kubectl` configured and connected to your cluster.
+* Zarf already initialised on the cluster (`zarf init`).
+
+=== Procedure
+
+[source,bash]
+----
+IRONBARK_HOST_DATA_DIR=$(pwd)/ironbark-data
+mkdir "${IRONBARK_HOST_DATA_DIR}"
+
+alias ironbark="podman run \
+  --rm --it \
+  --network=host \
+  --volume ~/.kube/config:/root/.kube/config:z \
+  --volume ${IRONBARK_HOST_DATA_DIR}/:/mnt/data:z \
+  brightsparklabs/ironbark"
+----
+
+== Usage
+
+=== Quick Start
+
+To set up a complete Ironbark deployment:
+
+[source,bash]
+----
+# Initialise all Ironbark components.
+ironbark init all
+----
+
+This command will:
+
+. Deploy Ironbark packages (ArgoCD, External Secrets Operator, etc.).
+. Mirror required container images to the Zarf registry.
+. Create ArgoCD repository secrets for accessing Zarf Git and OCI registry.
+. Initialise the ArgoCD App of Apps repository.
+. Deploy the ArgoCD App of Apps to start syncing applications.
+
+=== Step-by-Step Initialisation
+
+You can also run individual initialisation steps:
+
+[source,bash]
+----
+# 1. Deploy and mirror Ironbark packages.
+ironbark init packages
+
+# 2. Set up ArgoCD repository secrets.
+ironbark init argocd-repo-secrets
+
+# 3. Create and push the App of Apps repository.
+ironbark init argocd-app-of-apps-repo
+
+# 4. Deploy the ArgoCD App of Apps.
+ironbark init argocd-app
+----
+
+=== Managing Applications
+
+After initialisation, manage your applications by:
+
+. Edit the App of Apps repository locally:
++
+[source,bash]
+----
+cd "${IRONBARK_HOST_DATA_DIR}/repos/ironbark-argocd-app-of-apps"
+
+# Add applications to chart/values.yaml.
+# Add value files to values/<app-name>/.
+----
+
+. Push changes to the internal Git server:
++
+[source,bash]
+----
+ironbark argo push
+----
+
+. ArgoCD will automatically sync the changes and deploy your applications.
+
+=== Accessing ArgoCD
+
+[source,bash]
+----
+# Get ArgoCD admin password.
+kubectl get secret -n bsl-ironbark-argocd \
+  argocd-initial-admin-secret -o jsonpath='{.data.password}' \
+  | base64 -d
+
+# Port forward to ArgoCD UI.
+kubectl port-forward -n bsl-ironbark-argocd services/argocd-server 8443:443
+
+# Open https://localhost:8443 in your browser.
+# Username: admin.
+# Password: (from command above).
+----
+
+=== Accessing Zarf Git Server
+
+[source,bash]
+----
+# Connect to Git server.
+zarf connect git --local-port 5002
+
+# Get credentials.
+zarf tools get-creds git
+
+# Access at http://localhost:5002.
+----
+
+== Configuration
+
+Ironbark uses environment variables for configuration:
+
+[cols="1,2,1"]
+|===
+|Environment Variable |Description |Default
+
+|`IRONBARK_DATA_DIR`
+|Directory for storing application data (repos, etc.)
+|`/mnt/data`
+|===
+
+== Adding New Applications
+
+To add a new application to your Ironbark deployment:
+
+. Ensure the Helm chart is mirrored to the Zarf OCI registry (via a Zarf package).
+
+. Edit the App of Apps configuration:
++
+[source,bash]
+----
+cd $IRONBARK_DATA_DIR/repos/ironbark-argocd-app-of-apps
+----
+
+. Add the application to `chart/values.yaml`:
++
+[source,yaml]
+----
+applications:
+  - name: my-app
+    chart:
+      name: repository/chart-name
+      targetRevision: 1.0.0
+    values:
+      path: values/my-app/values.yaml
+      targetRevision: HEAD
+----
+
+. Create values file at `values/my-app/values.yaml`:
++
+[source,yaml]
+----
+# Your Helm values here.
+replicaCount: 2
+----
+
+. Commit and push changes:
++
+[source,bash]
+----
+git add .
+git commit -m "Add my-app"
+ironbark argo push
+----
+
+. ArgoCD will automatically deploy the application.
+
+== Development
+
+=== Prerequisites
+
+* Go 1.25.5+
+
+=== Build from Source
+
+[source,bash]
+----
+# Clone the repository.
+git clone https://github.com/brightsparklabs/ironbark.git
+cd ironbark
+
+# Build the binary.
+make build
+
+# Binary will be in build/bin/ironbark.
+./build/bin/ironbark --help
+----
+
+=== Build OCI Image
+
+[source,bash]
+----
+make oci-image
+----
+
+=== Project Structure
+
+[source]
+----
+ironbark/
+├── src/
+│   ├── cmd/                    # CLI commands
+│   │   ├── root.go            # Root command and flags
+│   │   ├── init.go            # Initialisation commands
+│   │   └── argo.go            # ArgoCD repository commands
+│   ├── internal/
+│   │   ├── constants/         # Application constants
+│   │   ├── git/               # Git operations (Zarf Gitea integration)
+│   │   └── zarf/              # Zarf cluster and package operations
+│   └── resources/
+│       └── resources/         # Embedded resources
+│           ├── bootstrap-argocd-app-of-apps.yaml
+│           └── repos/
+│               └── ironbark-argocd-app-of-apps/  # App of Apps template
+├── resources/
+│   └── packages/              # Zarf package definitions
+│       ├── deploy/
+│       │   └── bsl-ironbark/  # Core Ironbark package
+│       └── mirror/
+│           └── bsl-ironbark-podinfo/  # Example application package
+├── Dockerfile                 # Multi-stage build with Zarf packages
+└── Makefile                   # Build automation
+----
+
+=== Building
+
+[source,bash]
+----
+# See all tasks.
+make
+
+# Run tests.
+make test
+
+# Format code.
+make format
+
+# Build binary.
+make build
+
+# Build oci-image image.
+make oci-image
+
+# Clean build artifacts.
+make clean
+----
+
+=== Running Locally
+
+[source,bash]
+----
+# Run from source.
+cd src
+go run . --help
+
+# Or build and run.
+make build
+./build/bin/ironbark --help
+----
+
+== Troubleshooting
+
+=== ArgoCD Applications Not Syncing
+
+[source,bash]
+----
+# Check ArgoCD application status.
+kubectl get applications -n bsl-ironbark-argocd
+
+# View ArgoCD logs.
+kubectl logs -n bsl-ironbark-argocd -l app.kubernetes.io/name=argocd-server
+
+# Check repo server logs for Git/OCI issues.
+kubectl logs -n bsl-ironbark-argocd -l app.kubernetes.io/name=argocd-repo-server
+----
+
+=== Cannot Push to Git Repository
+
+[source,bash]
+----
+# Verify Git tunnel is working.
+zarf connect git --local-port 5002
+
+# Check credentials.
+zarf tools get-creds git
+
+# Verify the repository exists in Gitea.
+# Access Gitea UI at http://localhost:5002.
+----
+
+=== OCI Registry Connection Issues
+
+The internal TLS proxy provides HTTPS access to the Zarf OCI registry:
+
+[source,bash]
+----
+# Check TLS proxy status.
+kubectl get pods -n bsl-ironbark-internal-tls-proxy
+
+# View proxy logs.
+kubectl logs -n bsl-ironbark-internal-tls-proxy -l app=internal-tls-proxy
+----
+
+== Contributing
+
+Contributions are welcome! Please ensure:
+
+. Code is formatted with `gofmt`.
+. All tests pass (`make test`).
+. Commit messages are clear and descriptive.
+
+== License
+
+Refer to the link:LICENSE[LICENSE] file for details.
+
+== Related Projects
+
+* https://zarf.dev/[Zarf] - DevSecOps for Air Gap.
+* https://argo-cd.readthedocs.io/[ArgoCD] - Declarative GitOps CD for Kubernetes.
+* https://external-secrets.io/[External Secrets Operator] - Kubernetes External Secrets integration.
