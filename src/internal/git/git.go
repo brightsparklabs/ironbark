@@ -19,16 +19,23 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
 	zarfcluster "github.com/zarf-dev/zarf/src/pkg/cluster"
 	zarfstate "github.com/zarf-dev/zarf/src/pkg/state"
+	"log/slog"
 )
+
+func getGiteaClient(gitTunnel *zarfcluster.Tunnel, gitServerInfo *zarfstate.GitServerInfo) (*gitea.Client, error) {
+	giteaOptions := gitea.SetBasicAuth(gitServerInfo.PushUsername, gitServerInfo.PushPassword)
+	giteaClient, err := gitea.NewClient(gitTunnel.HTTPEndpoints()[0], giteaOptions)
+	if err != nil {
+		return nil, fmt.Errorf("could not create client connection to git server: %w", err)
+	}
+	return giteaClient, nil
+}
 
 func CreateRepo(ctx context.Context, remoteRepoName string) (*gitea.Repository, error) {
 	f := func(gitTunnel *zarfcluster.Tunnel, gitServerInfo *zarfstate.GitServerInfo) (any, error) {
-
-		giteaOptions := gitea.SetBasicAuth(gitServerInfo.PushUsername, gitServerInfo.PushPassword)
-		giteaClient, err := gitea.NewClient(gitTunnel.HTTPEndpoints()[0], giteaOptions)
+		giteaClient, err := getGiteaClient(gitTunnel, gitServerInfo)
 		if err != nil {
-			return nil, fmt.Errorf("could not create client connection to git server: %w", err)
-
+			return nil, err
 		}
 
 		repo, _, err := giteaClient.GetRepo(gitServerInfo.PushUsername, remoteRepoName)
@@ -62,6 +69,38 @@ func CreateRepoArgoCDAppOfApps(ctx context.Context) (*gitea.Repository, error) {
 }
 
 func CloneRepo(ctx context.Context, localRepoDir string, remoteRepoName string) error {
+	f := func(gitTunnel *zarfcluster.Tunnel, gitServerInfo *zarfstate.GitServerInfo) (any, error) {
+		giteaClient, err := getGiteaClient(gitTunnel, gitServerInfo)
+		if err != nil {
+			return nil, err
+		}
+
+		_, _, err = giteaClient.GetRepo(gitServerInfo.PushUsername, remoteRepoName)
+		if err != nil {
+			return nil, fmt.Errorf("could not get repo `%s`: %w", remoteRepoName, err)
+		}
+
+		auth := &http.BasicAuth{
+			Username: gitServerInfo.PushUsername,
+			Password: gitServerInfo.PushPassword,
+		}
+
+		cloneUrl := fmt.Sprintf("%v/%v/%v.git", gitTunnel.HTTPEndpoints()[0], gitServerInfo.PushUsername, remoteRepoName)
+		slog.Debug("Cloning through tunnel", "url", cloneUrl)
+
+		_, err = git.PlainClone(localRepoDir, false, &git.CloneOptions{
+			URL:  cloneUrl,
+			Auth: auth,
+		})
+
+		return nil, err
+	}
+
+	_, err := executeInGitTunnel(ctx, f)
+	if err != nil {
+		return fmt.Errorf("failed to clone repo: %w", err)
+	}
+
 	return nil
 }
 
@@ -141,6 +180,8 @@ func executeInGitTunnel(ctx context.Context, f func(t *zarfcluster.Tunnel, gitSe
 	if len(tunnelURLs) == 0 {
 		return nil, errors.New("no zarf git tunnel HTTP endpoints available")
 	}
+
+	slog.Debug("Created git tunnel", "tunnelURLs", tunnelURLs)
 
 	result, err := f(tunnelGit, gitServerInfo)
 	return result, err
