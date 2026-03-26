@@ -16,9 +16,6 @@ import (
 	zarfstate "github.com/zarf-dev/zarf/src/pkg/state"
 )
 
-var jsonHandler = slog.NewJSONHandler(os.Stderr, nil)
-var logger = slog.New(jsonHandler)
-
 var zarfCluster *zarfcluster.Cluster
 var zarfState *zarfstate.State
 
@@ -27,7 +24,7 @@ func GetCluster(ctx context.Context) (*zarfcluster.Cluster, error) {
 		ctx = context.TODO()
 	}
 
-	logger.Debug("Getting zarf cluster ...")
+	slog.Debug("Getting zarf cluster ...")
 	if zarfCluster != nil {
 		return zarfCluster, nil
 	}
@@ -45,7 +42,7 @@ func GetState(ctx context.Context) (*zarfstate.State, error) {
 		ctx = context.TODO()
 	}
 
-	logger.Debug("Getting zarf state ...")
+	slog.Debug("Getting zarf state ...")
 	if zarfState != nil {
 		return zarfState, nil
 	}
@@ -64,7 +61,7 @@ func GetState(ctx context.Context) (*zarfstate.State, error) {
 }
 
 func GetRegistryInfo(ctx context.Context) (*zarfstate.RegistryInfo, error) {
-	logger.Debug("Getting zarf registry info...")
+	slog.Debug("Getting zarf registry info...")
 	zarfState, err := GetState(ctx)
 	if err != nil {
 		return nil, err
@@ -73,7 +70,7 @@ func GetRegistryInfo(ctx context.Context) (*zarfstate.RegistryInfo, error) {
 }
 
 func GetGitServerInfo(ctx context.Context) (*zarfstate.GitServerInfo, error) {
-	logger.Debug("Getting zarf git server info...")
+	slog.Debug("Getting zarf git server info...")
 	zarfState, err := GetState(ctx)
 	if err != nil {
 		return nil, err
@@ -91,7 +88,7 @@ func MirrorPackages(dir string) error {
 
 func runPackagesCommand(dir string, actions []string) error {
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		logger.Warn("Not searching for packages as directory does not exist", "dir", dir)
+		slog.Warn("Not searching for packages as directory does not exist", "dir", dir)
 		return nil
 	}
 

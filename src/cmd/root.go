@@ -4,15 +4,10 @@ Copyright © 2026 brightSPARK Labs <www.brightsparklabs.com>
 package cmd
 
 import (
-	"os"
-
 	"github.com/spf13/cobra"
 	zarfcmd "github.com/zarf-dev/zarf/src/cmd"
 	"log/slog"
 )
-
-var jsonHandler = slog.NewJSONHandler(os.Stderr, nil)
-var logger = slog.New(jsonHandler)
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
@@ -45,7 +40,7 @@ func Execute() {
 
 func exitOnError(err error, errorMessage string) {
 	if err != nil {
-		logger.Error(errorMessage, "err", err)
+		slog.Error(errorMessage, "err", err)
 		panic(err)
 	}
 }

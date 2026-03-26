@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"brightsparklabs.com/ironbark/internal/constants"
 	"brightsparklabs.com/ironbark/internal/zarf"
@@ -19,9 +20,9 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
 	zarfcluster "github.com/zarf-dev/zarf/src/pkg/cluster"
 	zarfstate "github.com/zarf-dev/zarf/src/pkg/state"
-	"log/slog"
 )
 
+// getGiteaClient creates a Gitea client authenticated with the provided credentials.
 func getGiteaClient(gitTunnel *zarfcluster.Tunnel, gitServerInfo *zarfstate.GitServerInfo) (*gitea.Client, error) {
 	giteaOptions := gitea.SetBasicAuth(gitServerInfo.PushUsername, gitServerInfo.PushPassword)
 	giteaClient, err := gitea.NewClient(gitTunnel.HTTPEndpoints()[0], giteaOptions)
@@ -31,6 +32,7 @@ func getGiteaClient(gitTunnel *zarfcluster.Tunnel, gitServerInfo *zarfstate.GitS
 	return giteaClient, nil
 }
 
+// CreateRepo creates a new repository on the Zarf Git server.
 func CreateRepo(ctx context.Context, remoteRepoName string) (*gitea.Repository, error) {
 	f := func(gitTunnel *zarfcluster.Tunnel, gitServerInfo *zarfstate.GitServerInfo) (any, error) {
 		giteaClient, err := getGiteaClient(gitTunnel, gitServerInfo)
@@ -64,10 +66,12 @@ func CreateRepo(ctx context.Context, remoteRepoName string) (*gitea.Repository, 
 	return repo, nil
 }
 
+// CreateRepoArgoCDAppOfApps creates the ArgoCD App of Apps repository on the Zarf Git server.
 func CreateRepoArgoCDAppOfApps(ctx context.Context) (*gitea.Repository, error) {
 	return CreateRepo(ctx, constants.ArgoCDRepoName)
 }
 
+// CloneRepo clones a repository from the Zarf Git server to the specified local directory.
 func CloneRepo(ctx context.Context, localRepoDir string, remoteRepoName string) error {
 	f := func(gitTunnel *zarfcluster.Tunnel, gitServerInfo *zarfstate.GitServerInfo) (any, error) {
 		giteaClient, err := getGiteaClient(gitTunnel, gitServerInfo)
@@ -104,10 +108,12 @@ func CloneRepo(ctx context.Context, localRepoDir string, remoteRepoName string) 
 	return nil
 }
 
+// CloneRepoArgoCDAppOfApps clones the ArgoCD App of Apps repository from the Zarf Git server.
 func CloneRepoArgoCDAppOfApps(ctx context.Context, localRepoDir string) error {
 	return CloneRepo(ctx, localRepoDir, constants.ArgoCDRepoName)
 }
 
+// PushRepo pushes a local repository to the Zarf Git server.
 func PushRepo(ctx context.Context, localRepoDir string, remoteRepoName string) error {
 	localRepo, err := git.PlainOpen(localRepoDir)
 	if err != nil {
@@ -148,12 +154,15 @@ func PushRepo(ctx context.Context, localRepoDir string, remoteRepoName string) e
 	return nil
 }
 
+// PushRepoArgoCDAppOfApps pushes the local ArgoCD App of Apps repository to the Zarf Git server.
 func PushRepoArgoCDAppOfApps(ctx context.Context, localRepoDir string) error {
 	return PushRepo(ctx, localRepoDir, constants.ArgoCDRepoName)
 }
 
+// PullRepo pulls changes from the remote repository (not yet implemented).
 func PullRepo(dir string) {}
 
+// executeInGitTunnel creates a tunnel to the Zarf Git server and executes the provided function with access to the tunnel and Git server info.
 func executeInGitTunnel(ctx context.Context, f func(t *zarfcluster.Tunnel, gitServerInfo *zarfstate.GitServerInfo) (any, error)) (any, error) {
 	zarfCluster, err := zarf.GetCluster(ctx)
 	if err != nil {

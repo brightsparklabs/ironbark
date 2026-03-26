@@ -6,6 +6,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -53,7 +54,7 @@ func newInitAllCmd() *cobra.Command {
 }
 
 func execInitAll(cmd *cobra.Command, args []string) {
-	logger.Info("Initialising Ironbark components ...")
+	slog.Info("Initialising Ironbark components ...")
 
 	err := initPackages()
 	exitOnError(err, "Could not initialise Ironbark packages")
@@ -67,7 +68,7 @@ func execInitAll(cmd *cobra.Command, args []string) {
 	err = initArgoApp()
 	exitOnError(err, "Could not apply ArgoCD App of Apps definition")
 
-	logger.Info("Successfully initialised all Ironbark components")
+	slog.Info("Successfully initialised all Ironbark components")
 }
 
 // -----------------------------------------------------------------------------
@@ -85,23 +86,23 @@ func newInitPackagesCmd() *cobra.Command {
 }
 
 func execInitPackages(cmd *cobra.Command, args []string) {
-	logger.Info("Initialising packages ...")
+	slog.Info("Initialising packages ...")
 	err := initPackages()
 	exitOnError(err, "Could not initialise packages")
-	logger.Info("Successfully initialised packages")
+	slog.Info("Successfully initialised packages")
 }
 
 func initPackages() error {
 	packagesDir := constants.GetInternalPackagesDir()
 
-	logger.Info("Mirroring packages ...")
+	slog.Info("Mirroring packages ...")
 	mirrorPackages := filepath.Join(packagesDir, "mirror")
 	err := zarf.MirrorPackages(mirrorPackages)
 	if err != nil {
 		return fmt.Errorf("could not mirror packages: %w", err)
 	}
 
-	logger.Info("Deploying packages ...")
+	slog.Info("Deploying packages ...")
 	deployPackages := filepath.Join(packagesDir, "deploy")
 	err = zarf.DeployPackages(deployPackages)
 	if err != nil {
@@ -126,10 +127,10 @@ func newInitArgoSecretsCmd() *cobra.Command {
 }
 
 func execInitArgoSecrets(cmd *cobra.Command, args []string) {
-	logger.Info("Adding ArgoCD repository secrets ...")
+	slog.Info("Adding ArgoCD repository secrets ...")
 	err := initArgoRepoSecrets(cmd.Context())
 	exitOnError(err, "Could not add ArgoCD repository secrets")
-	logger.Info("Successfully added ArgoCD repository secrets")
+	slog.Info("Successfully added ArgoCD repository secrets")
 }
 
 func initArgoRepoSecrets(ctx context.Context) error {
@@ -148,7 +149,7 @@ func initArgoRepoSecrets(ctx context.Context) error {
 		return fmt.Errorf("could not load zarf git server info: %w", err)
 	}
 
-	logger.Info("Adding Helm OCI HTTP", "url", "repository-zarf-helm-oci-http")
+	slog.Info("Adding Helm OCI HTTP", "url", "repository-zarf-helm-oci-http")
 	helmSecret := v1ac.Secret("repository-zarf-helm-oci-http", "bsl-ironbark-argocd").
 		WithLabels(map[string]string{
 			"argocd.argoproj.io/secret-type": "repository",
@@ -170,7 +171,7 @@ func initArgoRepoSecrets(ctx context.Context) error {
 		return fmt.Errorf("could not create ArgoCD zarf registry secret: %w", err)
 	}
 
-	logger.Info("Adding Helm OCI HTTPS", "url", "internal-tls-proxy.bsl-ironbark-internal-tls-proxy.svc.cluster.local")
+	slog.Info("Adding Helm OCI HTTPS", "url", "internal-tls-proxy.bsl-ironbark-internal-tls-proxy.svc.cluster.local")
 	helmTlsSecret := v1ac.Secret("repository-zarf-helm-oci-https", "bsl-ironbark-argocd").
 		WithLabels(map[string]string{
 			"argocd.argoproj.io/secret-type": "repository",
@@ -190,7 +191,7 @@ func initArgoRepoSecrets(ctx context.Context) error {
 		return fmt.Errorf("could not create ArgoCD zarf registry secret: %w", err)
 	}
 
-	logger.Info("Adding Git HTTP", "url", "http://zarf-gitea-http.zarf.svc.cluster.local:3000/zarf-git-user/ironbark-argocd-app-of-apps")
+	slog.Info("Adding Git HTTP", "url", "http://zarf-gitea-http.zarf.svc.cluster.local:3000/zarf-git-user/ironbark-argocd-app-of-apps")
 	gitSecret := v1ac.Secret("repository-zarf-git-http", "bsl-ironbark-argocd").
 		WithLabels(map[string]string{
 			"argocd.argoproj.io/secret-type": "repository",
@@ -225,22 +226,22 @@ func newInitArgoAppOfAppsRepoCmd() *cobra.Command {
 }
 
 func execInitArgoAppOfAppsRepo(cmd *cobra.Command, args []string) {
-	logger.Info("Initialising ArgoCD App of Apps repo ...")
+	slog.Info("Initialising ArgoCD App of Apps repo ...")
 	err := initArgoAppOfAppsRepo(cmd.Context())
 	exitOnError(err, "Could not initialise ArgoCD App of Apps repo")
-	logger.Info("Successfully initialised ArgoCD App of Apps repo")
+	slog.Info("Successfully initialised ArgoCD App of Apps repo")
 }
 
 // initArgoExec initialises the local ArgoCD app of apps repo and pushes it to the internal Git server.
 func initArgoAppOfAppsRepo(ctx context.Context) error {
 	repoName := constants.ArgoCDRepoName
-	logger.Info("Creating ArgoCD repo ...", "repo", repoName)
+	slog.Info("Creating ArgoCD repo ...", "repo", repoName)
 
 	repo, err := ironbarkGit.CreateRepoArgoCDAppOfApps(ctx)
 	if err != nil {
 		return fmt.Errorf("could not create remote ArgoCD repo: %w", err)
 	}
-	logger.Info("Successfully created repo", "url", repo.HTMLURL)
+	slog.Info("Successfully created repo", "url", repo.HTMLURL)
 
 	argoCDRepoDir := constants.GetArgoCDRepoDir()
 	_, err = createLocalArgoCDRepo(argoCDRepoDir)
@@ -253,7 +254,7 @@ func initArgoAppOfAppsRepo(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("could not push argo repo: %w", err)
 	}
-	logger.Info("Successfully pushed repo", "url", repo.HTMLURL)
+	slog.Info("Successfully pushed repo", "url", repo.HTMLURL)
 
 	return nil
 }
@@ -264,13 +265,13 @@ func createLocalArgoCDRepo(dir string) (*git.Repository, error) {
 	if err != nil {
 		return nil, fmt.Errorf("could not create repo dir: %w", err)
 	}
-	logger.Info("Created argo repo dir", "dir", dir)
+	slog.Info("Created argo repo dir", "dir", dir)
 
 	localRepo, err := git.PlainInit(dir, false)
 	if err != nil {
 		return nil, fmt.Errorf("could not init repo: %w", err)
 	}
-	logger.Info("Initialised argo local repo")
+	slog.Info("Initialised argo local repo")
 
 	copyAppOfAppResources(dir)
 
@@ -311,10 +312,10 @@ func newInitArgoAppCmd() *cobra.Command {
 }
 
 func execInitArgoApp(cmd *cobra.Command, args []string) {
-	logger.Info("Deploying and starting ArgoCD app of apps ...")
+	slog.Info("Deploying and starting ArgoCD app of apps ...")
 	err := initArgoApp()
 	exitOnError(err, "Could not apply ArgoCD App of Apps definition")
-	logger.Info("Successfully deployed ArgoCD app of apps")
+	slog.Info("Successfully deployed ArgoCD app of apps")
 }
 
 func initArgoApp() error {
@@ -338,6 +339,6 @@ func initArgoApp() error {
 	}
 
 	fmt.Println(string(output))
-	logger.Info("Successfully deployed ArgoCD app of apps")
+	slog.Info("Successfully deployed ArgoCD app of apps")
 	return nil
 }
