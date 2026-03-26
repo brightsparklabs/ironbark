@@ -47,7 +47,8 @@ format: ## Format the codebase.
 clean: ## Remove the build artifacts.
 	rm -rf ./build/
 
-build: ../build/bin/ironbark ## Build the application..
+build: build/bin/ironbark ## Build the application..
+build/bin/ironbark:
 	mkdir -p build/bin
 	cd src \
 		&& go mod download \
