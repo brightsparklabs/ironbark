@@ -229,6 +229,14 @@ applications:
     values:
       path: values/my-app/values.yaml
       targetRevision: HEAD
+      # Optional: Set Helm values from file contents (equivalent to `helm --set-file`).
+      fileParameters:
+        # Equivalent to `helm --set-file config.json=values/my-app/config.json`.
+        - name: config.json
+          path: values/my-app/config.json
+        # Equivalent to `helm --set-file tls.cert=values/my-app/cert.pem`.
+        - name: tls.cert
+          path: values/my-app/cert.pem
 ----
 
 . Create values file at `values/my-app/values.yaml`:
