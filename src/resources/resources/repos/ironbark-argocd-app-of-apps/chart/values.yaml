@@ -28,6 +28,16 @@ applications:
       # Use a custom repo instead of default (`config.spec.source.valuesRepoUrl`).
       #repo: http://zarf-gitea-http.zarf.svc.cluster.local:3000/zarf-git-user/helm-chart-values.git
 
+      # File parameters (equivalent to helm --set-file).
+      # Allows setting Helm values from file contents.
+      #fileParameters:
+      #  # Equivalent to `helm --set-file config.json=values/my-app/config.json`.
+      #  - name: config.json
+      #    path: values/ironbark-podinfo/config.json
+      #  # Equivalent to `helm --set-file tls.cert=values/my-app/cert.pem`.
+      #  - name: tls.cert
+      #    path: values/ironbark-podinfo/cert.pem
+
 config:
   spec:
     destination:
