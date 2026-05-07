@@ -91,11 +91,22 @@ The launcher wraps the underlying container engine invocation so you can run `ir
 
 [source,bash]
 ----
-# Generate a launcher script (defaults to Podman) and install it on your $PATH.
+# Pre-create the canonical Ironbark install root and hand ownership to the
+# current user so subsequent `ironbark` invocations do not require `sudo`.
+sudo mkdir -p /opt/brightsparklabs/ironbark/{bin,data}
+sudo chown -R "$(id -u):$(id -g)" /opt/brightsparklabs/ironbark
+
+# Generate a launcher script (defaults to Podman) and install it onto your
+# $PATH at the canonical location. The default `--data-dir` already points
+# at `/opt/brightsparklabs/ironbark/data` so no flag is required.
 podman run --rm brightsparklabs/ironbark generate launcher \
-  --data-dir "$(pwd)/ironbark-data" \
-  > ./ironbark
-chmod +x ./ironbark
+  > /opt/brightsparklabs/ironbark/bin/ironbark
+chmod +x /opt/brightsparklabs/ironbark/bin/ironbark
+
+# Make sure the launcher is on your PATH for the rest of this guide. Add this
+# line to your shell profile (e.g. `~/.bashrc`, `~/.zshrc`) to make it
+# permanent.
+export PATH="/opt/brightsparklabs/ironbark/bin:${PATH}"
 ----
 
 Available options for `ironbark generate launcher`:
@@ -103,7 +114,7 @@ Available options for `ironbark generate launcher`:
 [horizontal]
 `--container-engine`:: Container engine to use (`podman` or `docker`). Default: `podman`.
 `--image`:: Container image reference for Ironbark. Default: `brightsparklabs/ironbark:latest`.
-`--data-dir`:: Host directory mounted into the container as the Ironbark data directory. Default: `${PWD}/ironbark-data`.
+`--data-dir`:: Host directory mounted into the container as the Ironbark data directory. Default: `/opt/brightsparklabs/ironbark/data` (the canonical install location).
 `--kubeconfig`:: Host kubeconfig file mounted into the container. Default: `${HOME}/.kube/config`.
 `--no-interactive`:: Bake `IRONBARK_NO_INTERACTIVE` on as the default in the generated script (useful for CI). Default: `false`.
 `--no-tty`:: Bake `IRONBARK_NO_TTY` on as the default in the generated script (useful when piping or in CI). Default: `false`.
@@ -112,7 +123,7 @@ The generated script:
 
 * Attempts to create the host data directory if it does not exist.
 If the creation fails (e.g. permission denied) the script reports the error and exits with a non-zero status.
-* Sets `IRONBARK_IN_CONTAINER=true` inside the container so code (and shell scripts) can detect that it is running via the launcher.
+* Relies on `IRONBARK_IN_CONTAINER=true` being baked into the Ironbark image so code (and shell scripts) can detect that they are running inside the container, regardless of whether the launcher or a direct `podman run` was used.
 * Forwards a number of useful host details into the container as `IRONBARK_HOST_*` environment variables so that Ironbark can correctly reference paths and identities on the host (e.g. when invoking nested container engines):
 +
 [horizontal]
@@ -134,13 +145,80 @@ If the creation fails (e.g. permission denied) the script reports the error and 
 Leave them unset to keep the flags enabled.
 * Honours `IRONBARK_VERBOSE`: define it to ANY value to print the resolved settings (container engine, image, mounts, flag state, forwarded host env vars) to stderr before invoking the container engine.
 
-To generate a launcher targeting Docker instead of Podman:
+To generate a launcher targeting Docker instead of Podman (substitute `podman` for `docker` in the bootstrap command from the previous example):
 
 [source,bash]
 ----
-docker run --rm brightsparklabs/ironbark generate launcher --container-engine docker > ./ironbark
-chmod +x ./ironbark
+docker run --rm brightsparklabs/ironbark generate launcher \
+  --container-engine docker \
+  > /opt/brightsparklabs/ironbark/bin/ironbark
+chmod +x /opt/brightsparklabs/ironbark/bin/ironbark
 ----
+
+=== Bootstrapping a Host with Zarf
+
+When bootstrapping a fresh host (e.g. installing K3s via `zarf init`) you need the `zarf` CLI and the `zarf-init-*.tar.zst` package on the host itself.
+The Ironbark container ships both at `/app/resources/zarf/init`.
+Rather than manually invoking `podman cp ...`, generate a host-side extraction script.
+
+This is only required when the target host does not already have a Kubernetes cluster available; if a cluster already exists, Ironbark can talk to it directly via its kubeconfig and you can skip this step entirely.
+
+Before emitting the script, `generate zarf-bootstrap` verifies that the Zarf assets (the `zarf` CLI and a matching `zarf-init-*.tar.zst` package) actually exist at the configured source path.
+This catches misconfigurations such as a stale image or a wrong `--source-path` early, instead of letting the operator discover the problem after running the resulting script on the host.
+
+[source,bash]
+----
+# Generate the extraction script using the launcher installed above and run
+# it on the host.
+ironbark generate zarf-bootstrap > extract-zarf.sh
+chmod +x extract-zarf.sh
+./extract-zarf.sh
+
+# Bootstrap the host (installs K3s and the Zarf in-cluster components).
+# `zarf init` is interactive; the operator is prompted to confirm.
+cd /opt/brightsparklabs/ironbark/data/zarf/init
+sudo ./zarf init
+----
+
+Available options for `ironbark generate zarf-bootstrap`:
+
+[horizontal]
+`--container-engine`, `-e`:: Container engine to use (`podman` or `docker`). Default: `podman`.
+`--image`, `-i`:: Container image reference for Ironbark. Default: `brightsparklabs/ironbark:latest`.
+`--source-path`, `-s`:: Path inside the container containing the Zarf CLI and init package. Default: `/app/resources/zarf/init`.
+`--output-dir`, `-o`:: Host directory which will receive the extracted Zarf assets. Default: `/opt/brightsparklabs/ironbark/data/zarf/init` (sits inside the launcher's default data directory so no extra mount is required).
+
+The generated script:
+
+* Validates that the requested container engine is available on `PATH`.
+* Creates the output directory if it does not already exist.
+* Creates a throwaway Ironbark container, copies the Zarf assets out, then removes the throwaway container (always, via a `trap`).
+* Honours runtime overrides via `IRONBARK_CONTAINER_ENGINE`, `IRONBARK_IMAGE`, `IRONBARK_ZARF_SOURCE_PATH`, `IRONBARK_ZARF_OUTPUT_DIR`, and `IRONBARK_VERBOSE`, so you can change the defaults without regenerating the script.
+* Does NOT run `zarf init` itself; the operator retains explicit control over the bootstrap step.
+
+=== Generating fapolicyd Rules
+
+Hosts that enforce `fapolicyd` need explicit rules to allow execution of the binaries Ironbark relies on (the extracted `zarf` CLI and the installed `k3s` CLI).
+Generate a matching rules file with:
+
+[source,bash]
+----
+# Defaults assume `/opt/brightsparklabs/ironbark/data/zarf/init/zarf` and
+# `/usr/local/bin/k3s`.
+ironbark generate fapolicy-rules \
+  --zarf-path /opt/brightsparklabs/ironbark/data/zarf/init/zarf \
+  --k3s-path /usr/local/bin/k3s \
+  | sudo tee /etc/fapolicyd/rules.d/30-ironbark.rules > /dev/null
+sudo systemctl restart fapolicyd
+----
+
+Available options for `ironbark generate fapolicy-rules`:
+
+[horizontal]
+`--zarf-path`:: Absolute host path of the extracted Zarf CLI. Default: `/opt/brightsparklabs/ironbark/data/zarf/init/zarf` (matches the default `--output-dir` of `generate zarf-bootstrap`).
+`--k3s-path`:: Absolute host path of the installed K3s CLI. Default: `/usr/local/bin/k3s`.
+
+The generated rules file allows execution and reading of each supplied binary.
 
 == Usage
 
@@ -251,7 +329,7 @@ Default: `/mnt/data`
 |Host directory bind-mounted into the container as the application data directory.
 Set automatically by the generated launcher script.
 
-Default: `${PWD}/ironbark-data`
+Default: `/opt/brightsparklabs/ironbark/data`
 
 |`IRONBARK_CONTAINER_ENGINE`
 |Container engine used by the generated launcher script (`podman` or `docker`).
@@ -281,10 +359,10 @@ Default: _unset_
 Default: _unset_
 
 |`IRONBARK_IN_CONTAINER`
-|Sentinel set to `true` by the generated launcher script inside the container.
-Code can use this to detect that it is running via the launcher.
+|Sentinel baked into the Ironbark container image (set to `true`).
+Code can use this to detect that it is running inside the container, regardless of how the container was launched (the launcher script, an ad-hoc `podman run`, etc.).
 
-Default: _unset_
+Default: _unset_ (only set inside the Ironbark container image)
 
 |
 `IRONBARK_HOST_USER` +

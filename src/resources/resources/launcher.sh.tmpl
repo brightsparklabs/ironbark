@@ -123,8 +123,10 @@ function host_env_args() {
     host_os="$(uname -s 2>/dev/null || echo unknown)"
     host_arch="$(uname -m 2>/dev/null || echo unknown)"
 
-    # Sentinel indicating we are running inside the launcher-managed container.
-    printf -- '--env IRONBARK_IN_CONTAINER=true '
+    # Note: `IRONBARK_IN_CONTAINER=true` is baked into the Ironbark image at
+    # build time, so it is intentionally not re-emitted here. Forwarding it
+    # again would mask the image-level guarantee and make it possible for a
+    # caller to override it from outside the container.
 
     # Launcher provenance (helps debug stale wrappers).
     printf -- '--env IRONBARK_HOST_LAUNCHER_VERSION={{ .IronbarkVersion }} '

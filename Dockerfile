@@ -47,6 +47,21 @@ RUN chmod +x zarf
 
 # Make a self-contained directory which can be used to do `zarf init`.
 # This allows a single directory to be copied onto host if installing k3s.
+#
+# IMPORTANT: this directory (under `/app/resources/zarf/init` in the final
+# image after the `COPY --from=builder-tooling /build/ .` below) and the
+# layout of its contents (the `zarf` binary plus a `zarf-init-*.tar.zst`
+# package) are a contract with the Go code that ships the
+# `generate zarf-bootstrap` command. Any change to this path or the
+# expected filenames MUST be mirrored in:
+#   - `src/cmd/generate.go`
+#       - `defaultZarfBootstrapSourcePath`
+#       - `zarfBinaryName`
+#       - `zarfInitPackagePrefix` / `zarfInitPackageSuffix`
+#   - `src/resources/resources/zarf-bootstrap.sh.tmpl` (which references the
+#     same defaults via the rendered template).
+# Otherwise the asset-existence check in `execZarfBootstrap` will fail at
+# runtime even though the assets are present in the image.
 WORKDIR /build/resources/zarf/init
 # Hard link to save space.
 RUN ln /build/bin/zarf
@@ -96,9 +111,13 @@ FROM  ${UBUNTU_IMAGE}
 
 ARG IRONBARK_DATA_DIR=/mnt/data
 ARG IRONBARK_INTERNAL_PACKAGES_DIR=/app/resources/packages
+# `IRONBARK_IN_CONTAINER` is baked into the image so any process started from
+# this image (whether via the launcher script or an ad-hoc `podman run`) can
+# unambiguously detect that it is executing inside the Ironbark container.
 ENV \
   IRONBARK_DATA_DIR=${IRONBARK_DATA_DIR} \
   IRONBARK_INTERNAL_PACKAGES_DIR=${IRONBARK_INTERNAL_PACKAGES_DIR} \
+  IRONBARK_IN_CONTAINER=true \
   PATH="/app/bin:${PATH}"
 
 WORKDIR /app
