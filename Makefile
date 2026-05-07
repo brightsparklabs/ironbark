@@ -47,6 +47,7 @@ format: ## Format the codebase.
 clean: ## Remove the build artifacts.
 	rm -rf ./build/
 
+.PHONY: build
 build: build/bin/ironbark ## Build the application..
 build/bin/ironbark:
 	mkdir -p build/bin
