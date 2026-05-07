@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -159,7 +160,7 @@ Example:
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return execLauncher(launcherTemplateData{
+			return execLauncher(os.Stdout, launcherTemplateData{
 				Engine:         engine,
 				Image:          image,
 				HostDataDir:    hostDataDir,
@@ -187,8 +188,12 @@ Example:
 }
 
 // execLauncher renders the launcher script template and writes the result to
-// standard output.
-func execLauncher(data launcherTemplateData) error {
+// the supplied writer.
+//
+// Build-time metadata (current time, Ironbark version, commit, build time) is
+// populated automatically; callers only need to supply the user-configurable
+// fields (engine, image, mounts, no-interactive/no-tty toggles).
+func execLauncher(out io.Writer, data launcherTemplateData) error {
 	normalisedEngine := strings.ToLower(strings.TrimSpace(data.Engine))
 	if _, ok := supportedLauncherEngines[normalisedEngine]; !ok {
 		return fmt.Errorf("unsupported container engine %q (must be one of: podman, docker)", data.Engine)
@@ -204,7 +209,7 @@ func execLauncher(data launcherTemplateData) error {
 		return fmt.Errorf("could not load launcher template: %w", err)
 	}
 
-	if err := tmpl.Execute(os.Stdout, data); err != nil {
+	if err := tmpl.Execute(out, data); err != nil {
 		return fmt.Errorf("could not render launcher template: %w", err)
 	}
 
