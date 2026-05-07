@@ -126,6 +126,9 @@ If the creation fails (e.g. permission denied) the script reports the error and 
 `IRONBARK_HOST_DATA_DIR`:: Host path of the mounted data directory.
 `IRONBARK_HOST_KUBECONFIG`:: Host path of the mounted kubeconfig file.
 `IRONBARK_HOST_CONTAINER_ENGINE`:: Container engine used to run Ironbark (`podman` or `docker`).
+`IRONBARK_HOST_LAUNCHER_VERSION`:: Version of the Ironbark binary that generated the launcher script.
+`IRONBARK_HOST_LAUNCHER_COMMIT`:: Short Git commit hash of the Ironbark binary that generated the launcher script.
+`IRONBARK_HOST_LAUNCHER_BUILD_TIME`:: UTC ISO 8601 timestamp recording when the Ironbark binary that generated the launcher script was built.
 `IRONBARK_HOST_LAUNCHER_GENERATED_AT`:: Timestamp recording when the launcher script itself was generated.
 * Honours `IRONBARK_NO_INTERACTIVE` and `IRONBARK_NO_TTY` at runtime: define either variable to ANY value (e.g. `true`, `1`, `yes`) to disable `--interactive` / `--tty` without regenerating the script.
 Leave them unset to keep the flags enabled.
@@ -293,6 +296,9 @@ Default: _unset_
 `IRONBARK_HOST_ARCH` +
 `IRONBARK_HOST_KUBECONFIG` +
 `IRONBARK_HOST_CONTAINER_ENGINE` +
+`IRONBARK_HOST_LAUNCHER_VERSION` +
+`IRONBARK_HOST_LAUNCHER_COMMIT` +
+`IRONBARK_HOST_LAUNCHER_BUILD_TIME` +
 `IRONBARK_HOST_LAUNCHER_GENERATED_AT`
 |Host details forwarded into the container by the generated launcher script.
 See the launcher generator docs above for descriptions of each variable.

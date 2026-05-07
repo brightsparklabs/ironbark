@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"brightsparklabs.com/ironbark/internal/version"
 	"brightsparklabs.com/ironbark/resources"
 
 	"github.com/spf13/cobra"
@@ -69,9 +70,18 @@ type launcherTemplateData struct {
 	// NoTTY bakes `--tty` off as the default in the generated script.
 	// Can still be re-enabled at runtime via `IRONBARK_NO_TTY=false`.
 	NoTTY bool
-	// GeneratedAt is an RFC3339 timestamp recording when the script was
+	// GeneratedAt is an ISO 8601 timestamp recording when the script was
 	// generated.
 	GeneratedAt string
+	// IronbarkVersion is the version of the Ironbark binary that generated
+	// the launcher script.
+	IronbarkVersion string
+	// IronbarkCommit is the short Git commit hash of the Ironbark binary
+	// that generated the launcher script.
+	IronbarkCommit string
+	// IronbarkBuildTime is the UTC ISO 8601 timestamp recording when the
+	// Ironbark binary that generated the launcher script was built.
+	IronbarkBuildTime string
 }
 
 // -----------------------------------------------------------------------------
@@ -185,6 +195,9 @@ func execLauncher(data launcherTemplateData) error {
 	}
 	data.Engine = normalisedEngine
 	data.GeneratedAt = time.Now().UTC().Format(time.RFC3339)
+	data.IronbarkVersion = version.GetVersion()
+	data.IronbarkCommit = version.GetCommit()
+	data.IronbarkBuildTime = version.GetBuildTime()
 
 	tmpl, err := resources.LoadTemplate(launcherTemplateFile)
 	if err != nil {
