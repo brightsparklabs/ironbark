@@ -71,11 +71,22 @@ RUN \
 # ------------------------------------------------------------------------------
 
 FROM golang:${GOLANG_VERSION} AS builder-golang
+ARG APP_VERSION=dev
+ARG VCS_REF=unknown
+ARG BUILD_TIME_UTC=unknown
 WORKDIR /build
 COPY src/go.mod src/go.sum ./
 RUN go mod download
 COPY ./src/ .
-RUN CGO_ENABLED=0 GOOS=linux go build -o ironbark .
+# Inject build-time metadata into the binary via `-ldflags -X`.
+# Keep the linker targets in sync with `internal/version/version.go`.
+RUN CGO_ENABLED=0 GOOS=linux go build \
+      -ldflags " \
+        -X brightsparklabs.com/ironbark/internal/version.Version=${APP_VERSION} \
+        -X brightsparklabs.com/ironbark/internal/version.Commit=${VCS_REF} \
+        -X brightsparklabs.com/ironbark/internal/version.BuildTime=${BUILD_TIME_UTC} \
+      " \
+      -o ironbark .
 
 # ------------------------------------------------------------------------------
 # FINAL STAGE

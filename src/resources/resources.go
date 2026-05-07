@@ -19,9 +19,10 @@ func Copy(source string, target string) error {
 	return err
 }
 
-// Loads a template from the resources.
-func loadTemplate(file string) (*template.Template, error) {
-	tmpl, err := template.ParseFS(resourcesFS, file)
+// LoadTemplate loads a text template from the embedded resources.
+// `file` is relative to the embedded "resources" directory.
+func LoadTemplate(file string) (*template.Template, error) {
+	tmpl, err := template.ParseFS(resourcesFS, "resources/"+file)
 	if err != nil {
 		return nil, err
 	}

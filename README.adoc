@@ -49,12 +49,12 @@ Ironbark manages several key components:
 │                     Kubernetes Cluster                  │
 │                                                         │
 │  ┌────────────┐    ┌──────────────┐   ┌──────────────┐  │
-│  │   ArgoCD   │───▶│  Zarf Git    │   │ Zarf OCI     │  │
+│  │   ArgoCD   │───>│  Zarf Git    │   │ Zarf OCI     │  │
 │  │            │    │  Server      │   │ Registry     │  │
 │  └────────────┘    └──────────────┘   └──────────────┘  │
-│        │                                      ▲         │
+│        │                                      ^         │
 │        │ Syncs Apps                           │         │
-│        ▼                                      │         │
+│        v                                      │         │
 │  ┌────────────────────────────────────────────┴──────┐  │
 │  │  App of Apps Repo (ironbark-argocd-app-of-apps)   │  │
 │  │  ├── chart/                (Helm templates)       │  │
@@ -86,17 +86,60 @@ Zarf Secrets Sync:: Ensures Zarf registry/repo credentials are available in all 
 
 === Procedure
 
+Generate a launcher script using the Ironbark container.
+The launcher wraps the underlying container engine invocation so you can run `ironbark` directly:
+
 [source,bash]
 ----
-IRONBARK_HOST_DATA_DIR=$(pwd)/ironbark-data
-mkdir "${IRONBARK_HOST_DATA_DIR}"
+# Generate a launcher script (defaults to Podman) and install it on your $PATH.
+podman run --rm brightsparklabs/ironbark generate launcher \
+  --data-dir "$(pwd)/ironbark-data" \
+  > ./ironbark
+chmod +x ./ironbark
+----
 
-alias ironbark="podman run \
-  --rm --it \
-  --network=host \
-  --volume ~/.kube/config:/root/.kube/config:z \
-  --volume ${IRONBARK_HOST_DATA_DIR}/:/mnt/data:z \
-  brightsparklabs/ironbark"
+Available options for `ironbark generate launcher`:
+
+[horizontal]
+`--container-engine`:: Container engine to use (`podman` or `docker`). Default: `podman`.
+`--image`:: Container image reference for Ironbark. Default: `brightsparklabs/ironbark:latest`.
+`--data-dir`:: Host directory mounted into the container as the Ironbark data directory. Default: `${PWD}/ironbark-data`.
+`--kubeconfig`:: Host kubeconfig file mounted into the container. Default: `${HOME}/.kube/config`.
+`--no-interactive`:: Bake `IRONBARK_NO_INTERACTIVE` on as the default in the generated script (useful for CI). Default: `false`.
+`--no-tty`:: Bake `IRONBARK_NO_TTY` on as the default in the generated script (useful when piping or in CI). Default: `false`.
+
+The generated script:
+
+* Attempts to create the host data directory if it does not exist.
+If the creation fails (e.g. permission denied) the script reports the error and exits with a non-zero status.
+* Sets `IRONBARK_IN_CONTAINER=true` inside the container so code (and shell scripts) can detect that it is running via the launcher.
+* Forwards a number of useful host details into the container as `IRONBARK_HOST_*` environment variables so that Ironbark can correctly reference paths and identities on the host (e.g. when invoking nested container engines):
++
+[horizontal]
+`IRONBARK_HOST_USER`:: Effective host user (`${SUDO_USER:-$USER}`).
+`IRONBARK_HOST_UID`:: Effective host user id (`${SUDO_UID:-$(id -u)}`).
+`IRONBARK_HOST_GID`:: Effective host group id (`${SUDO_GID:-$(id -g)}`).
+`IRONBARK_HOST_HOSTNAME`:: Hostname of the invoking machine.
+`IRONBARK_HOST_PWD`:: Working directory the launcher was invoked from.
+`IRONBARK_HOST_OS`:: Host operating system (`uname -s`).
+`IRONBARK_HOST_ARCH`:: Host CPU architecture (`uname -m`).
+`IRONBARK_HOST_DATA_DIR`:: Host path of the mounted data directory.
+`IRONBARK_HOST_KUBECONFIG`:: Host path of the mounted kubeconfig file.
+`IRONBARK_HOST_CONTAINER_ENGINE`:: Container engine used to run Ironbark (`podman` or `docker`).
+`IRONBARK_HOST_LAUNCHER_VERSION`:: Version of the Ironbark binary that generated the launcher script.
+`IRONBARK_HOST_LAUNCHER_COMMIT`:: Short Git commit hash of the Ironbark binary that generated the launcher script.
+`IRONBARK_HOST_LAUNCHER_BUILD_TIME`:: UTC ISO 8601 timestamp recording when the Ironbark binary that generated the launcher script was built.
+`IRONBARK_HOST_LAUNCHER_GENERATED_AT`:: Timestamp recording when the launcher script itself was generated.
+* Honours `IRONBARK_NO_INTERACTIVE` and `IRONBARK_NO_TTY` at runtime: define either variable to ANY value (e.g. `true`, `1`, `yes`) to disable `--interactive` / `--tty` without regenerating the script.
+Leave them unset to keep the flags enabled.
+* Honours `IRONBARK_VERBOSE`: define it to ANY value to print the resolved settings (container engine, image, mounts, flag state, forwarded host env vars) to stderr before invoking the container engine.
+
+To generate a launcher targeting Docker instead of Podman:
+
+[source,bash]
+----
+docker run --rm brightsparklabs/ironbark generate launcher --container-engine docker > ./ironbark
+chmod +x ./ironbark
 ----
 
 == Usage
@@ -195,13 +238,72 @@ zarf tools get-creds git
 
 Ironbark uses environment variables for configuration:
 
-[cols="1,2,1"]
+[cols="4a,8a", frame=none, grid=rows]
 |===
-|Environment Variable |Description |Default
+|Environment Variable |Description
 
 |`IRONBARK_DATA_DIR`
-|Directory for storing application data (repos, etc.)
-|`/mnt/data`
+|Directory inside the container for storing application data (repos, etc.).
+
+Default: `/mnt/data`
+
+|`IRONBARK_HOST_DATA_DIR`
+|Host directory bind-mounted into the container as the application data directory.
+Set automatically by the generated launcher script.
+
+Default: `${PWD}/ironbark-data`
+
+|`IRONBARK_CONTAINER_ENGINE`
+|Container engine used by the generated launcher script (`podman` or `docker`).
+
+Default: `podman`
+
+|`IRONBARK_IMAGE`
+|Container image reference used by the generated launcher script.
+
+Default: `brightsparklabs/ironbark:latest`
+
+|`IRONBARK_NO_INTERACTIVE`
+|When defined to ANY value, the generated launcher script omits the `--interactive` flag (useful in CI).
+Leave unset to keep `--interactive` enabled.
+
+Default: _unset_
+
+|`IRONBARK_NO_TTY`
+|When defined to ANY value, the generated launcher script omits the `--tty` flag (useful when piping or in CI).
+Leave unset to keep `--tty` enabled.
+
+Default: _unset_
+
+|`IRONBARK_VERBOSE`
+|When defined to ANY value, the generated launcher script prints the resolved settings (container engine, image, mounts, flag state, forwarded host env vars) to stderr before invoking the container engine.
+
+Default: _unset_
+
+|`IRONBARK_IN_CONTAINER`
+|Sentinel set to `true` by the generated launcher script inside the container.
+Code can use this to detect that it is running via the launcher.
+
+Default: _unset_
+
+|
+`IRONBARK_HOST_USER` +
+`IRONBARK_HOST_UID` +
+`IRONBARK_HOST_GID` +
+`IRONBARK_HOST_HOSTNAME`
+`IRONBARK_HOST_PWD` +
+`IRONBARK_HOST_OS` +
+`IRONBARK_HOST_ARCH` +
+`IRONBARK_HOST_KUBECONFIG` +
+`IRONBARK_HOST_CONTAINER_ENGINE` +
+`IRONBARK_HOST_LAUNCHER_VERSION` +
+`IRONBARK_HOST_LAUNCHER_COMMIT` +
+`IRONBARK_HOST_LAUNCHER_BUILD_TIME` +
+`IRONBARK_HOST_LAUNCHER_GENERATED_AT`
+|Host details forwarded into the container by the generated launcher script.
+See the launcher generator docs above for descriptions of each variable.
+
+Default: _unset_
 |===
 
 == Adding New Applications

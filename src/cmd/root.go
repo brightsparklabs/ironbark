@@ -31,6 +31,8 @@ func Execute() {
 
 	rootCmd.AddCommand(newArgoCmd())
 	rootCmd.AddCommand(newInitCmd())
+	rootCmd.AddCommand(newGenerateCmd())
+	rootCmd.AddCommand(newVersionCmd())
 
 	err := rootCmd.Execute()
 	if err != nil {
