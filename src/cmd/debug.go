@@ -69,6 +69,7 @@ Ironbark already has access to.
 // descriptions.
 func newDebugSettingsCmd() *cobra.Command {
 	var format string
+	var showAll bool
 
 	cmd := &cobra.Command{
 		Use:   "settings",
@@ -78,6 +79,12 @@ func newDebugSettingsCmd() *cobra.Command {
 Renders every IRONBARK_* environment variable Ironbark knows about,
 including its current effective value, declared default, source (env or
 default), scope (which subsystem consumes it), and a short description.
+
+By default, when Ironbark was not invoked via the generated launcher
+script, settings whose scope only makes sense in a launcher-invoked
+context (` + "`launcher-forwarded`" + ` and ` + "`shell-only`" + `) are
+hidden to keep the output focused. Pass ` + "`--all`" + ` to show every
+known setting regardless of context.
 
 The default output is a human-readable table; pass ` + "`--format json`" + `
 or ` + "`--format yaml`" + ` for machine-readable output.
@@ -90,12 +97,14 @@ value redacted.
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return execDebugSettings(os.Stdout, settings.ResolveAll(), format)
+			return execDebugSettings(os.Stdout, settings.ResolveAll(), format, showAll)
 		},
 	}
 
 	cmd.Flags().StringVarP(&format, "format", "f", "text",
 		"Output format (`text`, `json`, or `yaml`)")
+	cmd.Flags().BoolVarP(&showAll, "all", "a", false,
+		"Show every known setting, including launcher-forwarded and shell-only vars even when Ironbark was not invoked via the launcher")
 
 	return cmd
 }
@@ -103,19 +112,40 @@ value redacted.
 // execDebugSettings renders the supplied resolved settings to `out` in
 // the requested format. Extracted from the cobra command for direct
 // unit testing.
-func execDebugSettings(out io.Writer, resolved []settings.Resolved, format string) error {
+//
+// When the launcher sentinel (`IRONBARK_LAUNCHER_INVOKED`) is not set,
+// settings whose scope only makes sense in a launcher-invoked context
+// (`ScopeLauncherForwarded` and `ScopeShellOnly`) are filtered out so
+// the table only shows variables that are actually relevant to the
+// current invocation. Pass `showAll=true` to bypass this filter and
+// render every known setting regardless of context.
+func execDebugSettings(out io.Writer, resolved []settings.Resolved, format string, showAll bool) error {
 	normalised := strings.ToLower(strings.TrimSpace(format))
 	if _, ok := supportedDebugSettingsFormats[normalised]; !ok {
 		return fmt.Errorf("unsupported format %q (must be one of: text, json, yaml)", format)
 	}
 
+	// Treat `--all` as "launcher invoked" for the purposes of filtering
+	// so every setting is preserved. The launcher status banner shown
+	// at the top of the text renderer continues to reflect the real
+	// `IRONBARK_LAUNCHER_INVOKED` value, so operators are not misled.
+	bypassFilter := showAll || settings.LauncherInvoked()
+	filtered := filterForLauncherContext(resolved, bypassFilter)
+
+	// Decide whether the text renderer should print the "filtered"
+	// banner. We only filter when the launcher is not invoked AND the
+	// caller did not pass `--all`; in every other case the table
+	// already contains every known setting and a banner would be
+	// misleading.
+	wasFiltered := !bypassFilter && len(filtered) != len(resolved)
+
 	switch normalised {
 	case "text":
-		return renderDebugSettingsText(out, resolved)
+		return renderDebugSettingsText(out, filtered, wasFiltered)
 	case "json":
-		return renderDebugSettingsJSON(out, resolved)
+		return renderDebugSettingsJSON(out, filtered)
 	case "yaml":
-		return renderDebugSettingsYAML(out, resolved)
+		return renderDebugSettingsYAML(out, filtered)
 	}
 
 	// Unreachable - the validation above narrows `normalised` to one of
@@ -123,6 +153,31 @@ func execDebugSettings(out io.Writer, resolved []settings.Resolved, format strin
 	// to satisfy the compiler's exhaustiveness intuition and to fail
 	// loudly if the validation set and the switch ever drift.
 	return fmt.Errorf("unhandled format %q", normalised)
+}
+
+// filterForLauncherContext returns the subset of `resolved` that is
+// relevant to display given the current launcher-invocation state.
+//
+// When `launcherInvoked` is true, all settings are returned unchanged.
+// When false, settings whose scope only makes sense in a launcher-
+// invoked context (`ScopeLauncherForwarded` and `ScopeShellOnly`) are
+// dropped. The launcher sentinel itself (`ScopeLauncherSentinel`) is
+// always retained so operators can still see whether the launcher was
+// invoked at a glance.
+func filterForLauncherContext(resolved []settings.Resolved, launcherInvoked bool) []settings.Resolved {
+	if launcherInvoked {
+		return resolved
+	}
+
+	out := make([]settings.Resolved, 0, len(resolved))
+	for _, r := range resolved {
+		if r.Var.Scope == settings.ScopeLauncherForwarded ||
+			r.Var.Scope == settings.ScopeShellOnly {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
 }
 
 // -----------------------------------------------------------------------------
@@ -138,9 +193,18 @@ func execDebugSettings(out io.Writer, resolved []settings.Resolved, format strin
 // expected `IRONBARK_HOST_*` variables are present. The summary lets
 // operators spot launcher misconfiguration at a glance without having
 // to scan every row of the catalogue.
-func renderDebugSettingsText(out io.Writer, resolved []settings.Resolved) error {
+//
+// When `wasFiltered` is true an additional notice is printed informing
+// the operator that some settings have been hidden and explaining how
+// to display them.
+func renderDebugSettingsText(out io.Writer, resolved []settings.Resolved, wasFiltered bool) error {
 	if _, err := fmt.Fprintln(out, launcherStatusSummary()); err != nil {
 		return fmt.Errorf("could not write launcher status summary: %w", err)
+	}
+	if wasFiltered {
+		if _, err := fmt.Fprintln(out, filteredSettingsNotice()); err != nil {
+			return fmt.Errorf("could not write filtered settings notice: %w", err)
+		}
 	}
 	if _, err := fmt.Fprintln(out); err != nil {
 		return fmt.Errorf("could not write blank line after launcher summary: %w", err)
@@ -257,6 +321,18 @@ func displaySource(r settings.Resolved) string {
 // the catalogue type without forcing every caller to import the
 // `settings` package.
 type Var = settings.Var
+
+// filteredSettingsNotice returns the one-line banner shown above the
+// text-format settings table when the launcher-context filter has
+// removed at least one row. The notice tells the operator both *what*
+// was hidden (launcher-forwarded and shell-only scopes) and *why*
+// (Ironbark was not invoked via the launcher), and points them at the
+// `--all` flag if they want the full catalogue.
+func filteredSettingsNotice() string {
+	return "Note: launcher-forwarded and shell-only settings are hidden " +
+		"because Ironbark was not invoked via the launcher. Pass `--all` " +
+		"to show every known setting."
+}
 
 // launcherStatusSummary returns the one-line "Launcher invoked: ..."
 // banner shown above the text-format settings table. Uses

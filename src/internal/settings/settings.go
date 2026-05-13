@@ -148,7 +148,7 @@ var catalogue = []Var{
 	{
 		Name:        envLogLevel,
 		Description: "Minimum log level for the Ironbark binary (debug, info, warn, error). Defaults to info when unset or unrecognised.",
-		Default:     "",
+		Default:     defaultLogLevel,
 		Scope:       ScopeGoConsumed,
 	},
 
@@ -156,7 +156,7 @@ var catalogue = []Var{
 	{
 		Name:        envInContainer,
 		Description: "Sentinel baked into the Ironbark container image so any process can detect it is running inside the container.",
-		Default:     "",
+		Default:     defaultInContainer,
 		Scope:       ScopeContainerSentinel,
 	},
 
@@ -164,7 +164,7 @@ var catalogue = []Var{
 	{
 		Name:        envLauncherInvoked,
 		Description: "Sentinel set to `true` by the generated launcher script so any process can detect that Ironbark was invoked via the launcher (rather than directly).",
-		Default:     "",
+		Default:     defaultLauncherInvoked,
 		Scope:       ScopeLauncherSentinel,
 	},
 
@@ -337,6 +337,19 @@ const (
 	// defaultInternalPackagesDir is the fallback for
 	// `IRONBARK_INTERNAL_PACKAGES_DIR` when it is unset or empty.
 	defaultInternalPackagesDir = "/tmp/ironbark/packages"
+	// defaultLogLevel is the fallback for `IRONBARK_LOG_LEVEL` when it
+	// is unset or unrecognised. Mirrors the behaviour of
+	// `resolveLogLevel`, which maps unknown values onto `slog.LevelInfo`.
+	defaultLogLevel = "info"
+	// defaultInContainer is the fallback for `IRONBARK_IN_CONTAINER`
+	// when the sentinel is not set. Anything other than `true` is
+	// treated as "not running inside the Ironbark container".
+	defaultInContainer = "false"
+	// defaultLauncherInvoked is the fallback for
+	// `IRONBARK_LAUNCHER_INVOKED` when the sentinel is not set.
+	// Anything other than `true` is treated as "not invoked via the
+	// generated launcher script".
+	defaultLauncherInvoked = "false"
 )
 
 // -----------------------------------------------------------------------------

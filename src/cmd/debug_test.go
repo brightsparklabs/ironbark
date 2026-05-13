@@ -67,7 +67,7 @@ func fixtureResolved() []settings.Resolved {
 // error and no output is produced.
 func TestExecDebugSettings_unsupportedFormat_returnsError(t *testing.T) {
 	var buf bytes.Buffer
-	err := execDebugSettings(&buf, fixtureResolved(), "xml")
+	err := execDebugSettings(&buf, fixtureResolved(), "xml", false)
 	if err == nil {
 		t.Fatal("expected error for unsupported format, got nil")
 	}
@@ -84,7 +84,7 @@ func TestExecDebugSettings_unsupportedFormat_returnsError(t *testing.T) {
 func TestExecDebugSettings_formatIsCaseInsensitive(t *testing.T) {
 	for _, input := range []string{"TEXT", "JSON", "Yaml", " text "} {
 		var buf bytes.Buffer
-		if err := execDebugSettings(&buf, fixtureResolved(), input); err != nil {
+		if err := execDebugSettings(&buf, fixtureResolved(), input, false); err != nil {
 			t.Errorf("execDebugSettings(%q) returned error: %v", input, err)
 		}
 		if buf.Len() == 0 {
@@ -102,7 +102,7 @@ func TestExecDebugSettings_formatIsCaseInsensitive(t *testing.T) {
 // row for each input setting.
 func TestExecDebugSettings_text_includesHeaderAndAllRows(t *testing.T) {
 	var buf bytes.Buffer
-	if err := execDebugSettings(&buf, fixtureResolved(), "text"); err != nil {
+	if err := execDebugSettings(&buf, fixtureResolved(), "text", false); err != nil {
 		t.Fatalf("execDebugSettings returned error: %v", err)
 	}
 	got := buf.String()
@@ -124,7 +124,7 @@ func TestExecDebugSettings_text_includesHeaderAndAllRows(t *testing.T) {
 // real value never appears in the output.
 func TestExecDebugSettings_text_redactsSensitiveValues(t *testing.T) {
 	var buf bytes.Buffer
-	if err := execDebugSettings(&buf, fixtureResolved(), "text"); err != nil {
+	if err := execDebugSettings(&buf, fixtureResolved(), "text", false); err != nil {
 		t.Fatalf("execDebugSettings returned error: %v", err)
 	}
 	got := buf.String()
@@ -147,7 +147,7 @@ func TestExecDebugSettings_text_redactsSensitiveValues(t *testing.T) {
 // contains the expected fields and values, including redaction.
 func TestExecDebugSettings_json_producesValidJSONWithExpectedSchema(t *testing.T) {
 	var buf bytes.Buffer
-	if err := execDebugSettings(&buf, fixtureResolved(), "json"); err != nil {
+	if err := execDebugSettings(&buf, fixtureResolved(), "json", false); err != nil {
 		t.Fatalf("execDebugSettings returned error: %v", err)
 	}
 
@@ -185,7 +185,7 @@ func TestExecDebugSettings_json_producesValidJSONWithExpectedSchema(t *testing.T
 // contains the expected fields and values, including redaction.
 func TestExecDebugSettings_yaml_producesValidYAMLWithExpectedSchema(t *testing.T) {
 	var buf bytes.Buffer
-	if err := execDebugSettings(&buf, fixtureResolved(), "yaml"); err != nil {
+	if err := execDebugSettings(&buf, fixtureResolved(), "yaml", false); err != nil {
 		t.Fatalf("execDebugSettings returned error: %v", err)
 	}
 
@@ -293,7 +293,7 @@ func TestRenderDebugSettingsText_includesLauncherSummary(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	if err := execDebugSettings(&buf, fixtureResolved(), "text"); err != nil {
+	if err := execDebugSettings(&buf, fixtureResolved(), "text", false); err != nil {
 		t.Fatalf("execDebugSettings returned error: %v", err)
 	}
 	got := buf.String()
@@ -320,5 +320,216 @@ func TestDisplaySource_returnsExpectedLabels(t *testing.T) {
 	}
 	if displaySource(settings.Resolved{FromEnv: false}) != "default" {
 		t.Error("expected `default` for FromEnv=false")
+	}
+}
+
+// -----------------------------------------------------------------------------
+// TESTS: launcher context filtering
+// -----------------------------------------------------------------------------
+
+// fixtureAllScopes returns one resolved entry per scope so the
+// filtering tests exercise every code path.
+func fixtureAllScopes() []settings.Resolved {
+	return []settings.Resolved{
+		{
+			Var: settings.Var{
+				Name:  "IRONBARK_DATA_DIR",
+				Scope: settings.ScopeGoConsumed,
+			},
+		},
+		{
+			Var: settings.Var{
+				Name:  "IRONBARK_IN_CONTAINER",
+				Scope: settings.ScopeContainerSentinel,
+			},
+		},
+		{
+			Var: settings.Var{
+				Name:  "IRONBARK_LAUNCHER_INVOKED",
+				Scope: settings.ScopeLauncherSentinel,
+			},
+		},
+		{
+			Var: settings.Var{
+				Name:  "IRONBARK_HOST_DATA_DIR",
+				Scope: settings.ScopeLauncherForwarded,
+			},
+		},
+		{
+			Var: settings.Var{
+				Name:  "IRONBARK_CONTAINER_ENGINE",
+				Scope: settings.ScopeShellOnly,
+			},
+		},
+	}
+}
+
+// containsName reports whether the supplied resolved slice contains an
+// entry whose `Var.Name` matches `name`.
+func containsName(rs []settings.Resolved, name string) bool {
+	for _, r := range rs {
+		if r.Var.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// TestFilterForLauncherContext_invoked_returnsAllRows verifies that
+// every row is preserved when the launcher sentinel is set.
+func TestFilterForLauncherContext_invoked_returnsAllRows(t *testing.T) {
+	in := fixtureAllScopes()
+	got := filterForLauncherContext(in, true)
+	if len(got) != len(in) {
+		t.Fatalf("expected %d rows, got %d", len(in), len(got))
+	}
+}
+
+// TestFilterForLauncherContext_notInvoked_dropsLauncherForwardedAndShellOnly
+// verifies that launcher-forwarded and shell-only rows are removed
+// while go-consumed, container-sentinel, and launcher-sentinel rows
+// are retained.
+func TestFilterForLauncherContext_notInvoked_dropsLauncherForwardedAndShellOnly(t *testing.T) {
+	got := filterForLauncherContext(fixtureAllScopes(), false)
+
+	mustKeep := []string{
+		"IRONBARK_DATA_DIR",
+		"IRONBARK_IN_CONTAINER",
+		"IRONBARK_LAUNCHER_INVOKED",
+	}
+	for _, name := range mustKeep {
+		if !containsName(got, name) {
+			t.Errorf("expected %s to be retained, got %+v", name, got)
+		}
+	}
+
+	mustDrop := []string{
+		"IRONBARK_HOST_DATA_DIR",
+		"IRONBARK_CONTAINER_ENGINE",
+	}
+	for _, name := range mustDrop {
+		if containsName(got, name) {
+			t.Errorf("expected %s to be filtered out, got %+v", name, got)
+		}
+	}
+}
+
+// TestExecDebugSettings_showAll_notInvoked_includesAllScopes verifies
+// that passing `showAll=true` overrides the launcher-context filter so
+// every known setting is rendered, even when the launcher sentinel is
+// not set.
+func TestExecDebugSettings_showAll_notInvoked_includesAllScopes(t *testing.T) {
+	t.Setenv("IRONBARK_LAUNCHER_INVOKED", "")
+	if err := settings.Init(); err != nil {
+		_ = err
+	}
+
+	var buf bytes.Buffer
+	if err := execDebugSettings(&buf, fixtureAllScopes(), "text", true); err != nil {
+		t.Fatalf("execDebugSettings returned error: %v", err)
+	}
+	got := buf.String()
+
+	mustContain := []string{
+		"IRONBARK_DATA_DIR",
+		"IRONBARK_IN_CONTAINER",
+		"IRONBARK_LAUNCHER_INVOKED",
+		"IRONBARK_HOST_DATA_DIR",
+		"IRONBARK_CONTAINER_ENGINE",
+	}
+	for _, want := range mustContain {
+		if !strings.Contains(got, want) {
+			t.Errorf("expected text output with --all to contain %q, got:\n%s", want, got)
+		}
+	}
+}
+
+// TestExecDebugSettings_text_filtered_includesNotice verifies that the
+// "settings hidden" notice is rendered above the table when the
+// launcher-context filter has actually removed at least one row.
+func TestExecDebugSettings_text_filtered_includesNotice(t *testing.T) {
+	t.Setenv("IRONBARK_LAUNCHER_INVOKED", "")
+	if err := settings.Init(); err != nil {
+		_ = err
+	}
+
+	var buf bytes.Buffer
+	if err := execDebugSettings(&buf, fixtureAllScopes(), "text", false); err != nil {
+		t.Fatalf("execDebugSettings returned error: %v", err)
+	}
+	got := buf.String()
+
+	if !strings.Contains(got, "launcher-forwarded and shell-only settings are hidden") {
+		t.Errorf("expected filtered notice in output, got:\n%s", got)
+	}
+	if !strings.Contains(got, "--all") {
+		t.Errorf("expected filtered notice to mention --all flag, got:\n%s", got)
+	}
+}
+
+// TestExecDebugSettings_text_showAll_omitsNotice verifies that the
+// "settings hidden" notice is NOT rendered when `--all` is passed,
+// because nothing was actually hidden.
+func TestExecDebugSettings_text_showAll_omitsNotice(t *testing.T) {
+	t.Setenv("IRONBARK_LAUNCHER_INVOKED", "")
+	if err := settings.Init(); err != nil {
+		_ = err
+	}
+
+	var buf bytes.Buffer
+	if err := execDebugSettings(&buf, fixtureAllScopes(), "text", true); err != nil {
+		t.Fatalf("execDebugSettings returned error: %v", err)
+	}
+	got := buf.String()
+
+	if strings.Contains(got, "launcher-forwarded and shell-only settings are hidden") {
+		t.Errorf("did NOT expect filtered notice when --all is passed, got:\n%s", got)
+	}
+}
+
+// TestExecDebugSettings_text_noFilteringNeeded_omitsNotice verifies
+// that the notice is suppressed when the input contains nothing
+// filterable, even without `--all`.
+func TestExecDebugSettings_text_noFilteringNeeded_omitsNotice(t *testing.T) {
+	t.Setenv("IRONBARK_LAUNCHER_INVOKED", "")
+	if err := settings.Init(); err != nil {
+		_ = err
+	}
+
+	var buf bytes.Buffer
+	if err := execDebugSettings(&buf, fixtureResolved(), "text", false); err != nil {
+		t.Fatalf("execDebugSettings returned error: %v", err)
+	}
+	got := buf.String()
+
+	if strings.Contains(got, "launcher-forwarded and shell-only settings are hidden") {
+		t.Errorf("did NOT expect filtered notice when no rows were filtered out, got:\n%s", got)
+	}
+}
+
+// TestExecDebugSettings_text_notInvoked_omitsLauncherForwardedAndShellOnly
+// verifies the end-to-end text rendering filters out the right scopes
+// when the launcher sentinel is not set.
+func TestExecDebugSettings_text_notInvoked_omitsLauncherForwardedAndShellOnly(t *testing.T) {
+	t.Setenv("IRONBARK_LAUNCHER_INVOKED", "")
+	if err := settings.Init(); err != nil {
+		_ = err
+	}
+
+	var buf bytes.Buffer
+	if err := execDebugSettings(&buf, fixtureAllScopes(), "text", false); err != nil {
+		t.Fatalf("execDebugSettings returned error: %v", err)
+	}
+	got := buf.String()
+
+	for _, want := range []string{"IRONBARK_DATA_DIR", "IRONBARK_LAUNCHER_INVOKED", "IRONBARK_IN_CONTAINER"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("expected text output to contain %q, got:\n%s", want, got)
+		}
+	}
+	for _, unwanted := range []string{"IRONBARK_HOST_DATA_DIR", "IRONBARK_CONTAINER_ENGINE"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("expected text output to NOT contain %q, got:\n%s", unwanted, got)
+		}
 	}
 }
