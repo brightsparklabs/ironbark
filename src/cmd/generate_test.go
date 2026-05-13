@@ -127,6 +127,11 @@ func TestExecLauncher_withDefaults_rendersExpectedInvariants(t *testing.T) {
 		"set -o nounset",
 		"set -o pipefail",
 
+		// Launcher sentinel emitted alongside the host env vars (so
+		// any process spawned from the resulting container can detect
+		// it was invoked via the launcher).
+		"IRONBARK_LAUNCHER_INVOKED=true",
+
 		// All forwarded host env vars.
 		"IRONBARK_HOST_USER=",
 		"IRONBARK_HOST_UID=",

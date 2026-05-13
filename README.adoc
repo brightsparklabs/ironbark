@@ -384,6 +384,30 @@ See the launcher generator docs above for descriptions of each variable.
 Default: _unset_
 |===
 
+== Diagnostic Commands
+
+Ironbark groups its troubleshooting subcommands under `ironbark debug`.
+These commands never modify any external system; they only read and print information that Ironbark already has access to.
+
+=== Inspecting Settings
+
+`ironbark debug settings` prints the full catalogue of `IRONBARK_*` environment variables Ironbark knows about, along with each variable's current effective value, declared default, source (env or default), scope, and a short description.
+
+[source,bash]
+----
+# Default human-readable table.
+ironbark debug settings
+
+# Machine-readable output for piping into other tools.
+ironbark debug settings --format json
+ironbark debug settings --format yaml
+----
+
+The catalogue in `src/internal/settings/settings.go` is the single source of truth for every `IRONBARK_*` variable understood by the system.
+The unit tests for that package enforce that variable names are unique, well-formed (`IRONBARK_*` prefix), and that every Go-consumed accessor has a matching catalogue entry, so the output of `debug settings` cannot drift from the real list of variables Ironbark reads.
+
+Variables marked sensitive (currently none) are rendered with their values redacted as `<redacted>` regardless of the chosen output format.
+
 == Adding New Applications
 
 To add a new application to your Ironbark deployment:

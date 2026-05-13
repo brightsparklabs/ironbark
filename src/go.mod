@@ -8,6 +8,7 @@ require (
 	github.com/otiai10/copy v1.14.1
 	github.com/spf13/cobra v1.10.2
 	github.com/zarf-dev/zarf v0.69.0
+	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/apimachinery v0.34.3
 	k8s.io/client-go v0.34.3
 )
@@ -577,7 +578,6 @@ require (
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/op/go-logging.v1 v1.0.0-20160211212156-b2cb9fa56473 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 	gorm.io/gorm v1.31.1 // indirect
 	helm.sh/helm/v3 v3.19.4 // indirect
 	k8s.io/api v0.34.3 // indirect

@@ -128,6 +128,12 @@ function host_env_args() {
     # again would mask the image-level guarantee and make it possible for a
     # caller to override it from outside the container.
 
+    # Sentinel indicating Ironbark was invoked via the launcher (rather than
+    # ad-hoc `podman run`). Code can use this to detect launcher invocation
+    # AND to enforce that every expected `IRONBARK_HOST_*` variable below
+    # is present.
+    printf -- '--env IRONBARK_LAUNCHER_INVOKED=true '
+
     # Launcher provenance (helps debug stale wrappers).
     printf -- '--env IRONBARK_HOST_LAUNCHER_VERSION={{ .IronbarkVersion }} '
     printf -- '--env IRONBARK_HOST_LAUNCHER_COMMIT={{ .IronbarkCommit }} '

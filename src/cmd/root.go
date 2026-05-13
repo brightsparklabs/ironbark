@@ -9,7 +9,11 @@ import (
 	"log/slog"
 )
 
-// rootCmd represents the base command when called without any subcommands
+// rootCmd represents the base command when called without any subcommands.
+//
+// Note: launcher-environment validation runs in `settings.Init` (called
+// from `main`), so by the time any subcommand executes the
+// `IRONBARK_HOST_*` invariants have already been enforced.
 var rootCmd = &cobra.Command{
 	Use:   "ironbark",
 	Short: "Kubernetes management using the brightSPARK Labs opinionated deployment pattern",
@@ -33,6 +37,7 @@ func Execute() {
 	rootCmd.AddCommand(newInitCmd())
 	rootCmd.AddCommand(newGenerateCmd())
 	rootCmd.AddCommand(newVersionCmd())
+	rootCmd.AddCommand(newDebugCmd())
 
 	err := rootCmd.Execute()
 	if err != nil {
