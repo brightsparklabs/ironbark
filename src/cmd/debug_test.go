@@ -357,8 +357,8 @@ func fixtureAllScopes() []settings.Resolved {
 		},
 		{
 			Var: settings.Var{
-				Name:  "IRONBARK_CONTAINER_ENGINE",
-				Scope: settings.ScopeShellOnly,
+				Name:  "IRONBARK_SCRIPT_CONTAINER_ENGINE",
+				Scope: settings.ScopeScript,
 			},
 		},
 	}
@@ -386,7 +386,7 @@ func TestFilterForLauncherContext_invoked_returnsAllRows(t *testing.T) {
 }
 
 // TestFilterForLauncherContext_notInvoked_dropsLauncherForwardedAndShellOnly
-// verifies that launcher-forwarded and shell-only rows are removed
+// verifies that launcher-forwarded and script rows are removed
 // while go-consumed, container-sentinel, and launcher-sentinel rows
 // are retained.
 func TestFilterForLauncherContext_notInvoked_dropsLauncherForwardedAndShellOnly(t *testing.T) {
@@ -405,7 +405,7 @@ func TestFilterForLauncherContext_notInvoked_dropsLauncherForwardedAndShellOnly(
 
 	mustDrop := []string{
 		"IRONBARK_HOST_DATA_DIR",
-		"IRONBARK_CONTAINER_ENGINE",
+		"IRONBARK_SCRIPT_CONTAINER_ENGINE",
 	}
 	for _, name := range mustDrop {
 		if containsName(got, name) {
@@ -435,7 +435,7 @@ func TestExecDebugSettings_showAll_notInvoked_includesAllScopes(t *testing.T) {
 		"IRONBARK_IN_CONTAINER",
 		"IRONBARK_LAUNCHER_INVOKED",
 		"IRONBARK_HOST_DATA_DIR",
-		"IRONBARK_CONTAINER_ENGINE",
+		"IRONBARK_SCRIPT_CONTAINER_ENGINE",
 	}
 	for _, want := range mustContain {
 		if !strings.Contains(got, want) {
@@ -459,7 +459,7 @@ func TestExecDebugSettings_text_filtered_includesNotice(t *testing.T) {
 	}
 	got := buf.String()
 
-	if !strings.Contains(got, "launcher-forwarded and shell-only settings are hidden") {
+	if !strings.Contains(got, "launcher-forwarded and script settings are hidden") {
 		t.Errorf("expected filtered notice in output, got:\n%s", got)
 	}
 	if !strings.Contains(got, "--all") {
@@ -482,7 +482,7 @@ func TestExecDebugSettings_text_showAll_omitsNotice(t *testing.T) {
 	}
 	got := buf.String()
 
-	if strings.Contains(got, "launcher-forwarded and shell-only settings are hidden") {
+	if strings.Contains(got, "launcher-forwarded and script settings are hidden") {
 		t.Errorf("did NOT expect filtered notice when --all is passed, got:\n%s", got)
 	}
 }
@@ -502,7 +502,7 @@ func TestExecDebugSettings_text_noFilteringNeeded_omitsNotice(t *testing.T) {
 	}
 	got := buf.String()
 
-	if strings.Contains(got, "launcher-forwarded and shell-only settings are hidden") {
+	if strings.Contains(got, "launcher-forwarded and script settings are hidden") {
 		t.Errorf("did NOT expect filtered notice when no rows were filtered out, got:\n%s", got)
 	}
 }
@@ -527,7 +527,7 @@ func TestExecDebugSettings_text_notInvoked_omitsLauncherForwardedAndShellOnly(t 
 			t.Errorf("expected text output to contain %q, got:\n%s", want, got)
 		}
 	}
-	for _, unwanted := range []string{"IRONBARK_HOST_DATA_DIR", "IRONBARK_CONTAINER_ENGINE"} {
+	for _, unwanted := range []string{"IRONBARK_HOST_DATA_DIR", "IRONBARK_SCRIPT_CONTAINER_ENGINE"} {
 		if strings.Contains(got, unwanted) {
 			t.Errorf("expected text output to NOT contain %q, got:\n%s", unwanted, got)
 		}

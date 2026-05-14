@@ -32,12 +32,12 @@ set -o pipefail
 # ------------------------------------------------------------------------------
 
 # Container engine to use (`podman` or `docker`).
-# Override at runtime by exporting `IRONBARK_CONTAINER_ENGINE`.
-CONTAINER_ENGINE="${IRONBARK_CONTAINER_ENGINE:-{{ .Engine }}}"
+# Override at runtime by exporting `IRONBARK_SCRIPT_CONTAINER_ENGINE`.
+CONTAINER_ENGINE="${IRONBARK_SCRIPT_CONTAINER_ENGINE:-{{ .Engine }}}"
 
 # Container image to launch.
-# Override at runtime by exporting `IRONBARK_IMAGE`.
-IRONBARK_IMAGE="${IRONBARK_IMAGE:-{{ .Image }}}"
+# Override at runtime by exporting `IRONBARK_SCRIPT_IMAGE`.
+IRONBARK_SCRIPT_IMAGE="${IRONBARK_SCRIPT_IMAGE:-{{ .Image }}}"
 
 # Host directory which holds Ironbark application data.
 # This is mounted into the container at `/mnt/data` and is exposed inside
@@ -52,27 +52,27 @@ IRONBARK_HOST_DATA_DIR="${IRONBARK_HOST_DATA_DIR:-{{ .HostDataDir }}}"
 IRONBARK_HOST_KUBECONFIG="${IRONBARK_HOST_KUBECONFIG:-{{ .HostKubeconfig }}}"
 
 # Disable the container engine `--interactive` flag.
-# Define `IRONBARK_NO_INTERACTIVE` to ANY value (e.g. `true`, `1`, `yes`) to
+# Define `IRONBARK_SCRIPT_NO_INTERACTIVE` to ANY value (e.g. `true`, `1`, `yes`) to
 # disable. Leave unset to keep `--interactive` enabled.
 {{ if .NoInteractive -}}
-NO_INTERACTIVE="${IRONBARK_NO_INTERACTIVE-true}"
+NO_INTERACTIVE="${IRONBARK_SCRIPT_NO_INTERACTIVE-true}"
 {{- else -}}
-NO_INTERACTIVE="${IRONBARK_NO_INTERACTIVE-}"
+NO_INTERACTIVE="${IRONBARK_SCRIPT_NO_INTERACTIVE-}"
 {{- end }}
 
 # Disable the container engine `--tty` flag.
-# Define `IRONBARK_NO_TTY` to ANY value (e.g. `true`, `1`, `yes`) to disable.
+# Define `IRONBARK_SCRIPT_NO_TTY` to ANY value (e.g. `true`, `1`, `yes`) to disable.
 # Leave unset to keep `--tty` enabled.
 {{ if .NoTTY -}}
-NO_TTY="${IRONBARK_NO_TTY-true}"
+NO_TTY="${IRONBARK_SCRIPT_NO_TTY-true}"
 {{- else -}}
-NO_TTY="${IRONBARK_NO_TTY-}"
+NO_TTY="${IRONBARK_SCRIPT_NO_TTY-}"
 {{- end }}
 
 # Print the launcher settings (env vars, mounts, command) to stderr before
 # invoking the container engine.
-# Define `IRONBARK_VERBOSE` to ANY value (e.g. `true`, `1`) to enable.
-VERBOSE="${IRONBARK_VERBOSE-}"
+# Define `IRONBARK_SCRIPT_VERBOSE` to ANY value (e.g. `true`, `1`) to enable.
+VERBOSE="${IRONBARK_SCRIPT_VERBOSE-}"
 
 # ------------------------------------------------------------------------------
 # FUNCTIONS
@@ -189,7 +189,7 @@ function main() {
     if [[ -n "${VERBOSE}" ]]; then
         print_verbose "Launching Ironbark container with the following settings:"
         print_verbose "  CONTAINER_ENGINE        = ${CONTAINER_ENGINE}"
-        print_verbose "  IRONBARK_IMAGE          = ${IRONBARK_IMAGE}"
+        print_verbose "  IRONBARK_SCRIPT_IMAGE          = ${IRONBARK_SCRIPT_IMAGE}"
         print_verbose "  IRONBARK_HOST_DATA_DIR  = ${IRONBARK_HOST_DATA_DIR}"
         print_verbose "  IRONBARK_HOST_KUBECONFIG= ${IRONBARK_HOST_KUBECONFIG}"
         print_verbose "  --interactive flag      = $([[ -n "${interactive_flag}" ]] && echo enabled || echo disabled)"
@@ -215,7 +215,7 @@ function main() {
         $(host_env_args) \
         --volume "${IRONBARK_HOST_KUBECONFIG}:/root/.kube/config:z" \
         --volume "${IRONBARK_HOST_DATA_DIR}:/mnt/data:z" \
-        "${IRONBARK_IMAGE}" \
+        "${IRONBARK_SCRIPT_IMAGE}" \
         "$@"
 }
 

@@ -85,7 +85,7 @@ func TestAll_scopesAreKnown(t *testing.T) {
 		ScopeContainerSentinel: {},
 		ScopeLauncherSentinel:  {},
 		ScopeLauncherForwarded: {},
-		ScopeShellOnly:         {},
+		ScopeScript:            {},
 	}
 	for _, v := range All() {
 		if _, ok := known[v.Scope]; !ok {

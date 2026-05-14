@@ -153,9 +153,9 @@ func TestExecLauncher_withDefaults_rendersExpectedInvariants(t *testing.T) {
 		":/mnt/data:z",
 
 		// Runtime overrides for the optional flags.
-		"IRONBARK_NO_INTERACTIVE",
-		"IRONBARK_NO_TTY",
-		"IRONBARK_VERBOSE",
+		"IRONBARK_SCRIPT_NO_INTERACTIVE",
+		"IRONBARK_SCRIPT_NO_TTY",
+		"IRONBARK_SCRIPT_VERBOSE",
 
 		// Image and engine show up in the rendered defaults.
 		"brightsparklabs/ironbark:latest",
@@ -205,7 +205,7 @@ func TestExecLauncher_withNoInteractiveFlag_bakesDisableDefault(t *testing.T) {
 
 	got := renderLauncher(t, data)
 
-	if !strings.Contains(got, `NO_INTERACTIVE="${IRONBARK_NO_INTERACTIVE-true}"`) {
+	if !strings.Contains(got, `NO_INTERACTIVE="${IRONBARK_SCRIPT_NO_INTERACTIVE-true}"`) {
 		t.Errorf("expected NO_INTERACTIVE to default to `true`, got:\n%s", got)
 	}
 }
@@ -219,7 +219,7 @@ func TestExecLauncher_withNoTTYFlag_bakesDisableDefault(t *testing.T) {
 
 	got := renderLauncher(t, data)
 
-	if !strings.Contains(got, `NO_TTY="${IRONBARK_NO_TTY-true}"`) {
+	if !strings.Contains(got, `NO_TTY="${IRONBARK_SCRIPT_NO_TTY-true}"`) {
 		t.Errorf("expected NO_TTY to default to `true`, got:\n%s", got)
 	}
 }
@@ -231,10 +231,10 @@ func TestExecLauncher_withNoTTYFlag_bakesDisableDefault(t *testing.T) {
 func TestExecLauncher_withDefaults_doesNotBakeDisableDefaults(t *testing.T) {
 	got := renderLauncher(t, validLauncherData())
 
-	if !strings.Contains(got, `NO_INTERACTIVE="${IRONBARK_NO_INTERACTIVE-}"`) {
+	if !strings.Contains(got, `NO_INTERACTIVE="${IRONBARK_SCRIPT_NO_INTERACTIVE-}"`) {
 		t.Errorf("expected NO_INTERACTIVE to default to empty, got:\n%s", got)
 	}
-	if !strings.Contains(got, `NO_TTY="${IRONBARK_NO_TTY-}"`) {
+	if !strings.Contains(got, `NO_TTY="${IRONBARK_SCRIPT_NO_TTY-}"`) {
 		t.Errorf("expected NO_TTY to default to empty, got:\n%s", got)
 	}
 }
@@ -271,7 +271,7 @@ func TestExecLauncher_withMixedCaseEngine_normalisesToLower(t *testing.T) {
 
 	got := renderLauncher(t, data)
 
-	if !strings.Contains(got, `CONTAINER_ENGINE="${IRONBARK_CONTAINER_ENGINE:-podman}"`) {
+	if !strings.Contains(got, `CONTAINER_ENGINE="${IRONBARK_SCRIPT_CONTAINER_ENGINE:-podman}"`) {
 		t.Errorf("expected engine to be normalised to lower case, got:\n%s", got)
 	}
 }
@@ -285,7 +285,7 @@ func TestExecLauncher_withSurroundingWhitespace_trimsEngine(t *testing.T) {
 
 	got := renderLauncher(t, data)
 
-	if !strings.Contains(got, `CONTAINER_ENGINE="${IRONBARK_CONTAINER_ENGINE:-docker}"`) {
+	if !strings.Contains(got, `CONTAINER_ENGINE="${IRONBARK_SCRIPT_CONTAINER_ENGINE:-docker}"`) {
 		t.Errorf("expected engine to be trimmed, got:\n%s", got)
 	}
 }
@@ -356,11 +356,11 @@ func TestExecZarfBootstrap_withDefaults_rendersExpectedInvariants(t *testing.T) 
 		"set -o pipefail",
 
 		// Runtime overrides for all configurable values.
-		"IRONBARK_CONTAINER_ENGINE",
-		"IRONBARK_IMAGE",
-		"IRONBARK_ZARF_SOURCE_PATH",
-		"IRONBARK_ZARF_OUTPUT_DIR",
-		"IRONBARK_VERBOSE",
+		"IRONBARK_SCRIPT_CONTAINER_ENGINE",
+		"IRONBARK_SCRIPT_IMAGE",
+		"IRONBARK_SCRIPT_ZARF_SOURCE_PATH",
+		"IRONBARK_SCRIPT_ZARF_OUTPUT_DIR",
+		"IRONBARK_SCRIPT_VERBOSE",
 
 		// Core extraction logic.
 		"create",
@@ -440,7 +440,7 @@ func TestExecZarfBootstrap_withMixedCaseEngine_normalisesToLower(t *testing.T) {
 
 	got := renderZarfBootstrap(t, data)
 
-	if !strings.Contains(got, `CONTAINER_ENGINE="${IRONBARK_CONTAINER_ENGINE:-podman}"`) {
+	if !strings.Contains(got, `CONTAINER_ENGINE="${IRONBARK_SCRIPT_CONTAINER_ENGINE:-podman}"`) {
 		t.Errorf("expected engine to be normalised to lower case, got:\n%s", got)
 	}
 }

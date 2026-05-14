@@ -36,25 +36,25 @@ set -o pipefail
 # ------------------------------------------------------------------------------
 
 # Container engine to use (`podman` or `docker`).
-# Override at runtime by exporting `IRONBARK_CONTAINER_ENGINE`.
-CONTAINER_ENGINE="${IRONBARK_CONTAINER_ENGINE:-{{ .Engine }}}"
+# Override at runtime by exporting `IRONBARK_SCRIPT_CONTAINER_ENGINE`.
+CONTAINER_ENGINE="${IRONBARK_SCRIPT_CONTAINER_ENGINE:-{{ .Engine }}}"
 
 # Container image to extract Zarf from.
-# Override at runtime by exporting `IRONBARK_IMAGE`.
-IRONBARK_IMAGE="${IRONBARK_IMAGE:-{{ .Image }}}"
+# Override at runtime by exporting `IRONBARK_SCRIPT_IMAGE`.
+IRONBARK_SCRIPT_IMAGE="${IRONBARK_SCRIPT_IMAGE:-{{ .Image }}}"
 
 # Path inside the container which contains the `zarf` CLI and the
 # `zarf-init-*.tar.zst` package.
-# Override at runtime by exporting `IRONBARK_ZARF_SOURCE_PATH`.
-SOURCE_PATH="${IRONBARK_ZARF_SOURCE_PATH:-{{ .SourcePath }}}"
+# Override at runtime by exporting `IRONBARK_SCRIPT_ZARF_SOURCE_PATH`.
+SOURCE_PATH="${IRONBARK_SCRIPT_ZARF_SOURCE_PATH:-{{ .SourcePath }}}"
 
 # Host directory which will receive the extracted Zarf assets.
-# Override at runtime by exporting `IRONBARK_ZARF_OUTPUT_DIR`.
-OUTPUT_DIR="${IRONBARK_ZARF_OUTPUT_DIR:-{{ .OutputDir }}}"
+# Override at runtime by exporting `IRONBARK_SCRIPT_ZARF_OUTPUT_DIR`.
+OUTPUT_DIR="${IRONBARK_SCRIPT_ZARF_OUTPUT_DIR:-{{ .OutputDir }}}"
 
 # Print the resolved settings to stderr before invoking the container engine.
-# Define `IRONBARK_VERBOSE` to ANY value (e.g. `true`, `1`) to enable.
-VERBOSE="${IRONBARK_VERBOSE-}"
+# Define `IRONBARK_SCRIPT_VERBOSE` to ANY value (e.g. `true`, `1`) to enable.
+VERBOSE="${IRONBARK_SCRIPT_VERBOSE-}"
 
 # ------------------------------------------------------------------------------
 # FUNCTIONS
@@ -113,16 +113,16 @@ function main() {
     if [[ -n "${VERBOSE}" ]]; then
         print_verbose "Extracting Zarf with the following settings:"
         print_verbose "  CONTAINER_ENGINE = ${CONTAINER_ENGINE}"
-        print_verbose "  IRONBARK_IMAGE   = ${IRONBARK_IMAGE}"
+        print_verbose "  IRONBARK_SCRIPT_IMAGE   = ${IRONBARK_SCRIPT_IMAGE}"
         print_verbose "  SOURCE_PATH      = ${SOURCE_PATH}"
         print_verbose "  OUTPUT_DIR       = ${OUTPUT_DIR}"
     fi
 
-    print_info "Creating throwaway container from image: ${IRONBARK_IMAGE}"
+    print_info "Creating throwaway container from image: ${IRONBARK_SCRIPT_IMAGE}"
     local container_id
-    container_id="$("${CONTAINER_ENGINE}" create "${IRONBARK_IMAGE}")"
+    container_id="$("${CONTAINER_ENGINE}" create "${IRONBARK_SCRIPT_IMAGE}")"
     if [[ -z "${container_id}" ]]; then
-        print_error "Could not create container from image: ${IRONBARK_IMAGE}"
+        print_error "Could not create container from image: ${IRONBARK_SCRIPT_IMAGE}"
         exit 1
     fi
 

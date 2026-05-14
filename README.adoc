@@ -116,8 +116,8 @@ Available options for `ironbark generate launcher`:
 `--image`:: Container image reference for Ironbark. Default: `brightsparklabs/ironbark:latest`.
 `--data-dir`:: Host directory mounted into the container as the Ironbark data directory. Default: `/opt/brightsparklabs/ironbark/data` (the canonical install location).
 `--kubeconfig`:: Host kubeconfig file mounted into the container. Default: `${HOME}/.kube/config`.
-`--no-interactive`:: Bake `IRONBARK_NO_INTERACTIVE` on as the default in the generated script (useful for CI). Default: `false`.
-`--no-tty`:: Bake `IRONBARK_NO_TTY` on as the default in the generated script (useful when piping or in CI). Default: `false`.
+`--no-interactive`:: Bake `IRONBARK_SCRIPT_NO_INTERACTIVE` on as the default in the generated script (useful for CI). Default: `false`.
+`--no-tty`:: Bake `IRONBARK_SCRIPT_NO_TTY` on as the default in the generated script (useful when piping or in CI). Default: `false`.
 
 The generated script:
 
@@ -141,9 +141,9 @@ If the creation fails (e.g. permission denied) the script reports the error and 
 `IRONBARK_HOST_LAUNCHER_COMMIT`:: Short Git commit hash of the Ironbark binary that generated the launcher script.
 `IRONBARK_HOST_LAUNCHER_BUILD_TIME`:: UTC ISO 8601 timestamp recording when the Ironbark binary that generated the launcher script was built.
 `IRONBARK_HOST_LAUNCHER_GENERATED_AT`:: Timestamp recording when the launcher script itself was generated.
-* Honours `IRONBARK_NO_INTERACTIVE` and `IRONBARK_NO_TTY` at runtime: define either variable to ANY value (e.g. `true`, `1`, `yes`) to disable `--interactive` / `--tty` without regenerating the script.
+* Honours `IRONBARK_SCRIPT_NO_INTERACTIVE` and `IRONBARK_SCRIPT_NO_TTY` at runtime: define either variable to ANY value (e.g. `true`, `1`, `yes`) to disable `--interactive` / `--tty` without regenerating the script.
 Leave them unset to keep the flags enabled.
-* Honours `IRONBARK_VERBOSE`: define it to ANY value to print the resolved settings (container engine, image, mounts, flag state, forwarded host env vars) to stderr before invoking the container engine.
+* Honours `IRONBARK_SCRIPT_VERBOSE`: define it to ANY value to print the resolved settings (container engine, image, mounts, flag state, forwarded host env vars) to stderr before invoking the container engine.
 
 To generate a launcher targeting Docker instead of Podman (substitute `podman` for `docker` in the bootstrap command from the previous example):
 
@@ -193,7 +193,7 @@ The generated script:
 * Validates that the requested container engine is available on `PATH`.
 * Creates the output directory if it does not already exist.
 * Creates a throwaway Ironbark container, copies the Zarf assets out, then removes the throwaway container (always, via a `trap`).
-* Honours runtime overrides via `IRONBARK_CONTAINER_ENGINE`, `IRONBARK_IMAGE`, `IRONBARK_ZARF_SOURCE_PATH`, `IRONBARK_ZARF_OUTPUT_DIR`, and `IRONBARK_VERBOSE`, so you can change the defaults without regenerating the script.
+* Honours runtime overrides via `IRONBARK_SCRIPT_CONTAINER_ENGINE`, `IRONBARK_SCRIPT_IMAGE`, `IRONBARK_SCRIPT_ZARF_SOURCE_PATH`, `IRONBARK_SCRIPT_ZARF_OUTPUT_DIR`, and `IRONBARK_SCRIPT_VERBOSE`, so you can change the defaults without regenerating the script.
 * Does NOT run `zarf init` itself; the operator retains explicit control over the bootstrap step.
 
 === Generating fapolicyd Rules
@@ -331,29 +331,29 @@ Set automatically by the generated launcher script.
 
 Default: `/opt/brightsparklabs/ironbark/data`
 
-|`IRONBARK_CONTAINER_ENGINE`
+|`IRONBARK_SCRIPT_CONTAINER_ENGINE`
 |Container engine used by the generated launcher script (`podman` or `docker`).
 
 Default: `podman`
 
-|`IRONBARK_IMAGE`
+|`IRONBARK_SCRIPT_IMAGE`
 |Container image reference used by the generated launcher script.
 
 Default: `brightsparklabs/ironbark:latest`
 
-|`IRONBARK_NO_INTERACTIVE`
+|`IRONBARK_SCRIPT_NO_INTERACTIVE`
 |When defined to ANY value, the generated launcher script omits the `--interactive` flag (useful in CI).
 Leave unset to keep `--interactive` enabled.
 
 Default: _unset_
 
-|`IRONBARK_NO_TTY`
+|`IRONBARK_SCRIPT_NO_TTY`
 |When defined to ANY value, the generated launcher script omits the `--tty` flag (useful when piping or in CI).
 Leave unset to keep `--tty` enabled.
 
 Default: _unset_
 
-|`IRONBARK_VERBOSE`
+|`IRONBARK_SCRIPT_VERBOSE`
 |When defined to ANY value, the generated launcher script prints the resolved settings (container engine, image, mounts, flag state, forwarded host env vars) to stderr before invoking the container engine.
 
 Default: _unset_

@@ -82,7 +82,7 @@ default), scope (which subsystem consumes it), and a short description.
 
 By default, when Ironbark was not invoked via the generated launcher
 script, settings whose scope only makes sense in a launcher-invoked
-context (` + "`launcher-forwarded`" + ` and ` + "`shell-only`" + `) are
+context (` + "`launcher-forwarded`" + ` and ` + "`shell`" + `) are
 hidden to keep the output focused. Pass ` + "`--all`" + ` to show every
 known setting regardless of context.
 
@@ -104,7 +104,7 @@ value redacted.
 	cmd.Flags().StringVarP(&format, "format", "f", "text",
 		"Output format (`text`, `json`, or `yaml`)")
 	cmd.Flags().BoolVarP(&showAll, "all", "a", false,
-		"Show every known setting, including launcher-forwarded and shell-only vars even when Ironbark was not invoked via the launcher")
+		"Show every known setting, including launcher-forwarded and script vars even when Ironbark was not invoked via the launcher")
 
 	return cmd
 }
@@ -115,7 +115,7 @@ value redacted.
 //
 // When the launcher sentinel (`IRONBARK_LAUNCHER_INVOKED`) is not set,
 // settings whose scope only makes sense in a launcher-invoked context
-// (`ScopeLauncherForwarded` and `ScopeShellOnly`) are filtered out so
+// (`ScopeLauncherForwarded` and `ScopeScript`) are filtered out so
 // the table only shows variables that are actually relevant to the
 // current invocation. Pass `showAll=true` to bypass this filter and
 // render every known setting regardless of context.
@@ -160,7 +160,7 @@ func execDebugSettings(out io.Writer, resolved []settings.Resolved, format strin
 //
 // When `launcherInvoked` is true, all settings are returned unchanged.
 // When false, settings whose scope only makes sense in a launcher-
-// invoked context (`ScopeLauncherForwarded` and `ScopeShellOnly`) are
+// invoked context (`ScopeLauncherForwarded` and `ScopeScript`) are
 // dropped. The launcher sentinel itself (`ScopeLauncherSentinel`) is
 // always retained so operators can still see whether the launcher was
 // invoked at a glance.
@@ -172,7 +172,7 @@ func filterForLauncherContext(resolved []settings.Resolved, launcherInvoked bool
 	out := make([]settings.Resolved, 0, len(resolved))
 	for _, r := range resolved {
 		if r.Var.Scope == settings.ScopeLauncherForwarded ||
-			r.Var.Scope == settings.ScopeShellOnly {
+			r.Var.Scope == settings.ScopeScript {
 			continue
 		}
 		out = append(out, r)
@@ -325,11 +325,11 @@ type Var = settings.Var
 // filteredSettingsNotice returns the one-line banner shown above the
 // text-format settings table when the launcher-context filter has
 // removed at least one row. The notice tells the operator both *what*
-// was hidden (launcher-forwarded and shell-only scopes) and *why*
+// was hidden (launcher-forwarded and script scopes) and *why*
 // (Ironbark was not invoked via the launcher), and points them at the
 // `--all` flag if they want the full catalogue.
 func filteredSettingsNotice() string {
-	return "Note: launcher-forwarded and shell-only settings are hidden " +
+	return "Note: launcher-forwarded and script settings are hidden " +
 		"because Ironbark was not invoked via the launcher. Pass `--all` " +
 		"to show every known setting."
 }

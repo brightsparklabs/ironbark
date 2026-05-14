@@ -148,10 +148,10 @@ type launcherTemplateData struct {
 	HostKubeconfig string
 	// NoInteractive bakes `--interactive` off as the default in the
 	// generated script. Can still be re-enabled at runtime via
-	// `IRONBARK_NO_INTERACTIVE=false`.
+	// `IRONBARK_SCRIPT_NO_INTERACTIVE=false`.
 	NoInteractive bool
 	// NoTTY bakes `--tty` off as the default in the generated script.
-	// Can still be re-enabled at runtime via `IRONBARK_NO_TTY=false`.
+	// Can still be re-enabled at runtime via `IRONBARK_SCRIPT_NO_TTY=false`.
 	NoTTY bool
 	// GeneratedAt is an ISO 8601 timestamp recording when the script was
 	// generated.
@@ -276,10 +276,10 @@ The generated script:
   - Forwards a number of useful host details into the container as
     ` + "`IRONBARK_HOST_*`" + ` environment variables (user, uid, gid, hostname,
     pwd, os, arch, container engine, launcher generated-at).
-  - Honours ` + "`IRONBARK_NO_INTERACTIVE`" + ` / ` + "`IRONBARK_NO_TTY`" + ` at
+  - Honours ` + "`IRONBARK_SCRIPT_NO_INTERACTIVE`" + ` / ` + "`IRONBARK_SCRIPT_NO_TTY`" + ` at
     runtime: define either variable to ANY value to disable
     ` + "`--interactive`" + ` / ` + "`--tty`" + `.
-  - Honours ` + "`IRONBARK_VERBOSE`" + `: define it to ANY value to print the
+  - Honours ` + "`IRONBARK_SCRIPT_VERBOSE`" + `: define it to ANY value to print the
     resolved launcher settings to stderr before invoking the container engine.
 
 Example:

@@ -64,10 +64,11 @@ const (
 	// non-empty - `ValidateLauncherEnv` enforces this.
 	ScopeLauncherForwarded Scope = "launcher-forwarded"
 
-	// ScopeShellOnly marks variables read only by the generated shell
-	// scripts (launcher / zarf-bootstrap). They never reach Go but
-	// users still need to know about them.
-	ScopeShellOnly Scope = "shell-only"
+	// ScopeScript marks variables read only by the generated launcher
+	// and zarf-bootstrap scripts. They never reach Go but users still
+	// need to know about them. By convention every variable in this
+	// scope uses the `IRONBARK_SCRIPT_*` prefix.
+	ScopeScript Scope = "script"
 )
 
 // Var is the immutable description of a single IRONBARK_* environment
@@ -168,48 +169,48 @@ var catalogue = []Var{
 		Scope:       ScopeLauncherSentinel,
 	},
 
-	// ----- Shell-only (launcher + zarf-bootstrap script overrides) -----
+	// ----- Launcher-script (launcher + zarf-bootstrap script overrides) -----
 	{
-		Name:        "IRONBARK_CONTAINER_ENGINE",
+		Name:        "IRONBARK_SCRIPT_CONTAINER_ENGINE",
 		Description: "Container engine (`podman` or `docker`) used by the generated launcher and zarf-bootstrap scripts. Overrides the value baked into the script at generation time.",
 		Default:     "",
-		Scope:       ScopeShellOnly,
+		Scope:       ScopeScript,
 	},
 	{
-		Name:        "IRONBARK_IMAGE",
+		Name:        "IRONBARK_SCRIPT_IMAGE",
 		Description: "Container image reference used by the generated launcher and zarf-bootstrap scripts. Overrides the value baked into the script at generation time.",
 		Default:     "",
-		Scope:       ScopeShellOnly,
+		Scope:       ScopeScript,
 	},
 	{
-		Name:        "IRONBARK_NO_INTERACTIVE",
+		Name:        "IRONBARK_SCRIPT_NO_INTERACTIVE",
 		Description: "Set to any value to make the generated launcher script run the container without `--interactive`. Useful in CI.",
 		Default:     "",
-		Scope:       ScopeShellOnly,
+		Scope:       ScopeScript,
 	},
 	{
-		Name:        "IRONBARK_NO_TTY",
+		Name:        "IRONBARK_SCRIPT_NO_TTY",
 		Description: "Set to any value to make the generated launcher script run the container without `--tty`. Useful when piping output or running in CI.",
 		Default:     "",
-		Scope:       ScopeShellOnly,
+		Scope:       ScopeScript,
 	},
 	{
-		Name:        "IRONBARK_VERBOSE",
+		Name:        "IRONBARK_SCRIPT_VERBOSE",
 		Description: "Set to any value to make the generated launcher and zarf-bootstrap scripts print verbose diagnostic output to stderr before running their main work.",
 		Default:     "",
-		Scope:       ScopeShellOnly,
+		Scope:       ScopeScript,
 	},
 	{
-		Name:        "IRONBARK_ZARF_SOURCE_PATH",
+		Name:        "IRONBARK_SCRIPT_ZARF_SOURCE_PATH",
 		Description: "Override for the in-container source path used by the generated zarf-bootstrap script.",
 		Default:     "",
-		Scope:       ScopeShellOnly,
+		Scope:       ScopeScript,
 	},
 	{
-		Name:        "IRONBARK_ZARF_OUTPUT_DIR",
+		Name:        "IRONBARK_SCRIPT_ZARF_OUTPUT_DIR",
 		Description: "Override for the host output directory used by the generated zarf-bootstrap script.",
 		Default:     "",
-		Scope:       ScopeShellOnly,
+		Scope:       ScopeScript,
 	},
 
 	// ----- Launcher-forwarded (host context exposed inside the container) -----
