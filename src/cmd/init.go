@@ -14,6 +14,7 @@ import (
 
 	"brightsparklabs.com/ironbark/internal/constants"
 	ironbarkGit "brightsparklabs.com/ironbark/internal/git"
+	"brightsparklabs.com/ironbark/internal/settings"
 	"brightsparklabs.com/ironbark/internal/zarf"
 	"brightsparklabs.com/ironbark/resources"
 
@@ -93,7 +94,7 @@ func execInitPackages(cmd *cobra.Command, args []string) {
 }
 
 func initPackages() error {
-	packagesDir := constants.GetInternalPackagesDir()
+	packagesDir := settings.InternalPackagesDir()
 
 	slog.Info("Mirroring packages ...")
 	mirrorPackages := filepath.Join(packagesDir, "mirror")
@@ -243,7 +244,7 @@ func initArgoAppOfAppsRepo(ctx context.Context) error {
 	}
 	slog.Info("Successfully created repo", "url", repo.HTMLURL)
 
-	argoCDRepoDir := constants.GetArgoCDRepoDir()
+	argoCDRepoDir := settings.ArgoCDRepoDir()
 	_, err = createLocalArgoCDRepo(argoCDRepoDir)
 	exitOnError(err, "")
 	if err != nil {
@@ -265,7 +266,7 @@ func createLocalArgoCDRepo(dir string) (*git.Repository, error) {
 	if err != nil {
 		return nil, fmt.Errorf("could not create repo dir: %w", err)
 	}
-	slog.Info("Created argo repo dir", "dir", dir)
+	slog.Info("Created argo repo dir", "dir", settings.DisplayPath(dir))
 
 	localRepo, err := git.PlainInit(dir, false)
 	if err != nil {

@@ -6,8 +6,8 @@ package cmd
 import (
 	"log/slog"
 
-	"brightsparklabs.com/ironbark/internal/constants"
 	ironbarkGit "brightsparklabs.com/ironbark/internal/git"
+	"brightsparklabs.com/ironbark/internal/settings"
 
 	"github.com/spf13/cobra"
 )
@@ -49,17 +49,19 @@ func newCloneCmd() *cobra.Command {
 
 // pushExec pushes the local ArgoCD app of apps repo to the internal Git server.
 func pushExec(cmd *cobra.Command, args []string) {
-	argoCDRepoDir := constants.GetArgoCDRepoDir()
-	slog.Info("Pushing ArgoCD repo ...", "localDir", argoCDRepoDir)
+	argoCDRepoDir := settings.ArgoCDRepoDir()
+	displayDir := settings.DisplayPath(argoCDRepoDir)
+	slog.Info("Pushing ArgoCD repo ...", "localDir", displayDir)
 	err := ironbarkGit.PushRepoArgoCDAppOfApps(cmd.Context(), argoCDRepoDir)
-	exitOnError(err, "Could not push repo `"+argoCDRepoDir+"`")
+	exitOnError(err, "Could not push repo `"+displayDir+"`")
 }
 
 // cloneExec clones the ArgoCD app of apps repo from the internal Git server.
 func cloneExec(cmd *cobra.Command, args []string) {
-	argoCDRepoDir := constants.GetArgoCDRepoDir()
-	slog.Info("Cloning ArgoCD repo ...", "localDir", argoCDRepoDir)
+	argoCDRepoDir := settings.ArgoCDRepoDir()
+	displayDir := settings.DisplayPath(argoCDRepoDir)
+	slog.Info("Cloning ArgoCD repo ...", "localDir", displayDir)
 	err := ironbarkGit.CloneRepoArgoCDAppOfApps(cmd.Context(), argoCDRepoDir)
-	exitOnError(err, "Could not clone repo to `"+argoCDRepoDir+"`")
-	slog.Info("Successfully cloned ArgoCD repo", "localDir", argoCDRepoDir)
+	exitOnError(err, "Could not clone repo to `"+displayDir+"`")
+	slog.Info("Successfully cloned ArgoCD repo", "localDir", displayDir)
 }
