@@ -7,20 +7,24 @@
  ##
 
 applications:
-  - name: ironbark-podinfo
+  - name: ironbark-canary-app
+    namespace: bsl-ironbark-canary-app
     chart:
       # Chart name as found in the OCI registry.
       # This will be appended to the `config.spec.source.ociUrl`.
-      name: stefanprodan/charts/podinfo
+      # The canary application is the upstream `cowboysysop/whoami` chart,
+      # mirrored into the cluster's internal OCI registry by the
+      # `ironbark-canary-app` Zarf mirror package.
+      name: cowboysysop/charts/whoami
       # Chart version to deploy.
-      # IMPORTANT: Keep this aligned with `resources/packages/mirror/bsl-ironbark-podinfo/zarf.yaml`.
-      targetRevision: 6.10.1
+      # IMPORTANT: Keep this aligned with `resources/packages/mirror/ironbark-canary-app/zarf.yaml`.
+      targetRevision: 6.0.0
 
     values:
       # Path to the Helm values YAML file to use.
-      path: values/ironbark-podinfo/values-blue.yaml
+      path: values/ironbark-canary-app/values-blue.yaml
       # Example alternative:
-      #path: values/podinfo/values-green.yaml
+      #path: values/ironbark-canary-app/values-green.yaml
 
       # Version of the repo to checkout.
       targetRevision: HEAD
@@ -33,10 +37,10 @@ applications:
       #fileParameters:
       #  # Equivalent to `helm --set-file config.json=values/my-app/config.json`.
       #  - name: config.json
-      #    path: values/ironbark-podinfo/config.json
+      #    path: values/ironbark-canary-app/config.json
       #  # Equivalent to `helm --set-file tls.cert=values/my-app/cert.pem`.
       #  - name: tls.cert
-      #    path: values/ironbark-podinfo/cert.pem
+      #    path: values/ironbark-canary-app/cert.pem
 
 config:
   spec:

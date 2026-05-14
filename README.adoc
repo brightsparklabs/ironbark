@@ -492,7 +492,7 @@ ironbark/
 │       ├── deploy/
 │       │   └── bsl-ironbark/  # Core Ironbark package
 │       └── mirror/
-│           └── bsl-ironbark-podinfo/  # Example application package
+│           └── ironbark-canary-app/  # Example application package
 ├── Dockerfile                 # Multi-stage build with Zarf packages
 └── Makefile                   # Build automation
 ----
