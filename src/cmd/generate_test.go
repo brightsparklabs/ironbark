@@ -306,6 +306,166 @@ func TestExecLauncher_withEmptyEngine_returnsError(t *testing.T) {
 // TESTS: execLauncher - bash syntax validity
 // -----------------------------------------------------------------------------
 
+// TestExecLauncher_rendersCliFlagParser verifies that the rendered
+// launcher includes the CLI flag-parsing function and the per-flag
+// case branches that map command-line flags to the corresponding
+// `IRONBARK_SCRIPT_*` environment variables.
+func TestExecLauncher_rendersCliFlagParser(t *testing.T) {
+	got := renderLauncher(t, validLauncherData())
+
+	expected := []string{
+		// Flag-parser entry point and the global args array it
+		// populates.
+		"function parse_launcher_args()",
+		"CONTAINER_ARGS=()",
+
+		// Each supported launcher flag must be wired to the
+		// corresponding IRONBARK_SCRIPT_* env var.
+		"--no-interactive)",
+		"export IRONBARK_SCRIPT_NO_INTERACTIVE=\"true\"",
+		"--no-tty)",
+		"export IRONBARK_SCRIPT_NO_TTY=\"true\"",
+		"--verbose)",
+		"export IRONBARK_SCRIPT_VERBOSE=\"true\"",
+		"--container-engine=*)",
+		"export IRONBARK_SCRIPT_CONTAINER_ENGINE=\"${1#*=}\"",
+		"--image=*)",
+		"export IRONBARK_SCRIPT_IMAGE=\"${1#*=}\"",
+
+		// Help and unknown-flag handling.
+		"--help)",
+		"print_launcher_usage",
+		"Unknown launcher option:",
+
+		// Runtime initialisation must happen AFTER flag parsing.
+		"function init_runtime_settings()",
+	}
+	for _, want := range expected {
+		if !strings.Contains(got, want) {
+			t.Errorf("rendered launcher missing CLI-parser substring %q", want)
+		}
+	}
+}
+
+// TestExecLauncher_cliFlags_endToEnd_executesRenderedScript renders
+// the launcher, replaces the final `podman run` invocation with a
+// stub, and exercises the rendered script with a representative set
+// of CLI flag combinations. The test confirms that flag parsing
+// actually mutates the runtime settings (rather than just appearing
+// in the rendered text) and that the `--` separator semantics behave
+// as advertised.
+//
+// Skipped when bash is not available on PATH.
+func TestExecLauncher_cliFlags_endToEnd_executesRenderedScript(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skipf("bash not available on PATH; skipping: %v", err)
+	}
+
+	// Render the launcher and stub out the actual container engine
+	// invocation so we can assert on what would have been executed
+	// without needing podman or docker to be installed.
+	rendered := renderLauncher(t, validLauncherData())
+	stubbed := strings.Replace(
+		rendered,
+		`"${CONTAINER_ENGINE}" run`,
+		`echo CMD: "${CONTAINER_ENGINE}" run`,
+		1,
+	)
+
+	// Use a writable host data dir so the script's `mkdir -p` does
+	// not fail before the parsing logic is exercised.
+	dataDir := t.TempDir()
+	stubbed = strings.Replace(
+		stubbed,
+		"/opt/brightsparklabs/ironbark/data",
+		dataDir,
+		-1,
+	)
+
+	tmpFile, err := os.CreateTemp("", "tmp_rovodev_launcher_cli_*.sh")
+	if err != nil {
+		t.Fatalf("could not create temp file: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+	if _, err := tmpFile.WriteString(stubbed); err != nil {
+		t.Fatalf("could not write stubbed launcher: %v", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		t.Fatalf("could not close temp file: %v", err)
+	}
+
+	cases := []struct {
+		name        string
+		args        []string
+		mustContain []string
+		mustOmit    []string
+	}{
+		{
+			name:        "no separator - all args forwarded verbatim",
+			args:        []string{"init", "all"},
+			mustContain: []string{"brightsparklabs/ironbark:latest init all"},
+		},
+		{
+			name: "separator - flags before are parsed, args after are forwarded",
+			args: []string{"--no-tty", "--verbose", "--", "init", "all"},
+			mustContain: []string{
+				"brightsparklabs/ironbark:latest init all",
+				"DEBUG:",
+				// `--no-tty` should disable the engine `--tty`
+				// flag so the verbose log reports it disabled.
+				"--tty flag              = disabled",
+			},
+			mustOmit: []string{
+				// The actual `podman run` invocation must not
+				// contain the `--tty` flag once `--no-tty` is in
+				// effect. The verbose-mode debug log uses
+				// "--tty flag" so we anchor on the plain
+				// `--tty ` token only as it appears in the
+				// final CMD line.
+				"CMD: podman run --rm --interactive --tty ",
+			},
+		},
+		{
+			name: "image flag overrides the baked-in default",
+			args: []string{"--image=registry.example/foo:1.0", "--", "argv"},
+			mustContain: []string{
+				"registry.example/foo:1.0 argv",
+			},
+			mustOmit: []string{
+				"brightsparklabs/ironbark:latest argv",
+			},
+		},
+		{
+			name: "container-engine flag is honoured",
+			args: []string{"--container-engine=docker", "--", "noop"},
+			mustContain: []string{
+				"CMD: docker run",
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := exec.Command("bash", append([]string{tmpFile.Name()}, tc.args...)...)
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("bash execution failed: %v\noutput:\n%s", err, out)
+			}
+			got := string(out)
+			for _, want := range tc.mustContain {
+				if !strings.Contains(got, want) {
+					t.Errorf("expected output to contain %q, got:\n%s", want, got)
+				}
+			}
+			for _, unwanted := range tc.mustOmit {
+				if strings.Contains(got, unwanted) {
+					t.Errorf("expected output to NOT contain %q, got:\n%s", unwanted, got)
+				}
+			}
+		})
+	}
+}
+
 // TestExecLauncher_renderedOutput_isValidBashSyntax verifies that the
 // rendered launcher script passes a `bash -n` parse without errors. The
 // test is skipped if `bash` is not available on the system PATH.

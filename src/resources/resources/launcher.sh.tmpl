@@ -30,49 +30,24 @@ set -o pipefail
 # ------------------------------------------------------------------------------
 # VARIABLES
 # ------------------------------------------------------------------------------
+#
+# These variables are intentionally NOT initialised here. They are populated
+# by `init_runtime_settings` after `parse_launcher_args` has had a chance to
+# set the corresponding `IRONBARK_SCRIPT_*` environment variables based on
+# any CLI flags supplied to the launcher. Initialising them here would cause
+# the CLI flags to be silently ignored.
 
-# Container engine to use (`podman` or `docker`).
-# Override at runtime by exporting `IRONBARK_SCRIPT_CONTAINER_ENGINE`.
-CONTAINER_ENGINE="${IRONBARK_SCRIPT_CONTAINER_ENGINE:-{{ .Engine }}}"
+CONTAINER_ENGINE=""
+IRONBARK_SCRIPT_IMAGE=""
+IRONBARK_HOST_DATA_DIR=""
+IRONBARK_HOST_KUBECONFIG=""
+NO_INTERACTIVE=""
+NO_TTY=""
+VERBOSE=""
 
-# Container image to launch.
-# Override at runtime by exporting `IRONBARK_SCRIPT_IMAGE`.
-IRONBARK_SCRIPT_IMAGE="${IRONBARK_SCRIPT_IMAGE:-{{ .Image }}}"
-
-# Host directory which holds Ironbark application data.
-# This is mounted into the container at `/mnt/data` and is exposed inside
-# the container as the `IRONBARK_HOST_DATA_DIR` environment variable so that
-# Ironbark can correctly reference files on the host (e.g. when invoking
-# nested container engines).
-# Override at runtime by exporting `IRONBARK_HOST_DATA_DIR`.
-IRONBARK_HOST_DATA_DIR="${IRONBARK_HOST_DATA_DIR:-{{ .HostDataDir }}}"
-
-# Host kubeconfig file to mount into the container.
-# Override at runtime by exporting `IRONBARK_HOST_KUBECONFIG`.
-IRONBARK_HOST_KUBECONFIG="${IRONBARK_HOST_KUBECONFIG:-{{ .HostKubeconfig }}}"
-
-# Disable the container engine `--interactive` flag.
-# Define `IRONBARK_SCRIPT_NO_INTERACTIVE` to ANY value (e.g. `true`, `1`, `yes`) to
-# disable. Leave unset to keep `--interactive` enabled.
-{{ if .NoInteractive -}}
-NO_INTERACTIVE="${IRONBARK_SCRIPT_NO_INTERACTIVE-true}"
-{{- else -}}
-NO_INTERACTIVE="${IRONBARK_SCRIPT_NO_INTERACTIVE-}"
-{{- end }}
-
-# Disable the container engine `--tty` flag.
-# Define `IRONBARK_SCRIPT_NO_TTY` to ANY value (e.g. `true`, `1`, `yes`) to disable.
-# Leave unset to keep `--tty` enabled.
-{{ if .NoTTY -}}
-NO_TTY="${IRONBARK_SCRIPT_NO_TTY-true}"
-{{- else -}}
-NO_TTY="${IRONBARK_SCRIPT_NO_TTY-}"
-{{- end }}
-
-# Print the launcher settings (env vars, mounts, command) to stderr before
-# invoking the container engine.
-# Define `IRONBARK_SCRIPT_VERBOSE` to ANY value (e.g. `true`, `1`) to enable.
-VERBOSE="${IRONBARK_SCRIPT_VERBOSE-}"
+# Container engine arguments destined for the Ironbark container.
+# Populated by `parse_launcher_args` from the launcher's `"$@"`.
+CONTAINER_ARGS=()
 
 # ------------------------------------------------------------------------------
 # FUNCTIONS
@@ -103,6 +78,152 @@ function print_error() { echo "$(date -Iseconds) ERROR: $*" >&2; }
 function print_verbose() {
     [[ -n "${VERBOSE}" ]] && echo "$(date -Iseconds) DEBUG: $*" >&2
     return 0
+}
+
+##
+ # Prints launcher usage information to stderr.
+ ##
+function print_launcher_usage() {
+    cat >&2 <<EOF
+Usage: $(basename "$0") [LAUNCHER_OPTIONS] [-- IRONBARK_ARGS...]
+
+If a literal '--' separator is supplied, every argument BEFORE the '--' is
+parsed by the launcher itself and every argument AFTER the '--' is forwarded
+verbatim to the Ironbark container. If no '--' is supplied, ALL arguments
+are forwarded to the container unchanged (no launcher-flag parsing happens).
+
+Launcher options (only honoured when a '--' separator is present):
+  --no-interactive        Run the container without '--interactive' (sets IRONBARK_SCRIPT_NO_INTERACTIVE=true).
+  --no-tty                Run the container without '--tty' (sets IRONBARK_SCRIPT_NO_TTY=true).
+  --verbose               Print launcher diagnostics to stderr (sets IRONBARK_SCRIPT_VERBOSE=true).
+  --container-engine=ENG  Override the container engine (sets IRONBARK_SCRIPT_CONTAINER_ENGINE).
+  --image=IMG             Override the container image (sets IRONBARK_SCRIPT_IMAGE).
+  --help                  Print this help message and exit.
+
+Equivalent IRONBARK_SCRIPT_* environment variables can also be exported
+directly; the CLI flags above are convenience wrappers that set them
+before the launcher reads them.
+EOF
+}
+
+##
+ # Parses launcher-specific options from the supplied arguments and exports
+ # the corresponding `IRONBARK_SCRIPT_*` environment variables so the rest
+ # of the script picks them up.
+ #
+ # The arguments destined for the Ironbark container are written into the
+ # global array `CONTAINER_ARGS`. We use a global rather than stdout so
+ # this function can both (a) export env vars and (b) return the forwarded
+ # args without a subshell (process substitution would discard the env
+ # var exports).
+ #
+ # If a literal '--' is found, only arguments BEFORE it are parsed; the
+ # arguments AFTER '--' become `CONTAINER_ARGS`.
+ #
+ # If no '--' is present, NO arguments are parsed and ALL arguments become
+ # `CONTAINER_ARGS` verbatim. This preserves backwards compatibility with
+ # callers that just want to forward everything to the container.
+ #
+ # @param $@
+ #          The full argument list passed to the launcher.
+ ##
+function parse_launcher_args() {
+    CONTAINER_ARGS=()
+
+    local has_separator="false"
+    local arg
+    for arg in "$@"; do
+        if [[ "${arg}" == "--" ]]; then
+            has_separator="true"
+            break
+        fi
+    done
+
+    # No separator: forward everything verbatim, parse nothing.
+    if [[ "${has_separator}" == "false" ]]; then
+        CONTAINER_ARGS=("$@")
+        return 0
+    fi
+
+    # Separator present: consume launcher flags up to '--', then collect
+    # everything after '--' into `CONTAINER_ARGS`.
+    while (( $# > 0 )); do
+        case "$1" in
+            --)
+                shift
+                break
+                ;;
+            --help)
+                print_launcher_usage
+                exit 0
+                ;;
+            --no-interactive)
+                export IRONBARK_SCRIPT_NO_INTERACTIVE="true"
+                ;;
+            --no-tty)
+                export IRONBARK_SCRIPT_NO_TTY="true"
+                ;;
+            --verbose)
+                export IRONBARK_SCRIPT_VERBOSE="true"
+                ;;
+            --container-engine=*)
+                export IRONBARK_SCRIPT_CONTAINER_ENGINE="${1#*=}"
+                ;;
+            --image=*)
+                export IRONBARK_SCRIPT_IMAGE="${1#*=}"
+                ;;
+            *)
+                print_error "Unknown launcher option: $1"
+                print_launcher_usage
+                exit 2
+                ;;
+        esac
+        shift
+    done
+
+    CONTAINER_ARGS=("$@")
+}
+
+##
+ # Initialises every runtime setting from the corresponding
+ # `IRONBARK_SCRIPT_*` environment variable, falling back to the default
+ # baked into the script at generation time. Must be called AFTER
+ # `parse_launcher_args` so that any CLI-flag overrides take effect.
+ ##
+function init_runtime_settings() {
+    CONTAINER_ENGINE="${IRONBARK_SCRIPT_CONTAINER_ENGINE:-{{ .Engine }}}"
+    IRONBARK_SCRIPT_IMAGE="${IRONBARK_SCRIPT_IMAGE:-{{ .Image }}}"
+
+    # Host directory which holds Ironbark application data.
+    # Mounted into the container at `/mnt/data` and re-exposed inside the
+    # container as `IRONBARK_HOST_DATA_DIR` so Ironbark can correctly
+    # reference files on the host (e.g. when invoking nested container
+    # engines). Override at runtime by exporting `IRONBARK_HOST_DATA_DIR`.
+    IRONBARK_HOST_DATA_DIR="${IRONBARK_HOST_DATA_DIR:-{{ .HostDataDir }}}"
+
+    # Host kubeconfig file to mount into the container.
+    # Override at runtime by exporting `IRONBARK_HOST_KUBECONFIG`.
+    IRONBARK_HOST_KUBECONFIG="${IRONBARK_HOST_KUBECONFIG:-{{ .HostKubeconfig }}}"
+
+    # Disable the container engine `--interactive` flag.
+    # Define `IRONBARK_SCRIPT_NO_INTERACTIVE` to ANY value to disable.
+{{ if .NoInteractive -}}
+    NO_INTERACTIVE="${IRONBARK_SCRIPT_NO_INTERACTIVE-true}"
+{{- else -}}
+    NO_INTERACTIVE="${IRONBARK_SCRIPT_NO_INTERACTIVE-}"
+{{- end }}
+
+    # Disable the container engine `--tty` flag.
+    # Define `IRONBARK_SCRIPT_NO_TTY` to ANY value to disable.
+{{ if .NoTTY -}}
+    NO_TTY="${IRONBARK_SCRIPT_NO_TTY-true}"
+{{- else -}}
+    NO_TTY="${IRONBARK_SCRIPT_NO_TTY-}"
+{{- end }}
+
+    # Print launcher settings to stderr before invoking the container.
+    # Define `IRONBARK_SCRIPT_VERBOSE` to ANY value to enable.
+    VERBOSE="${IRONBARK_SCRIPT_VERBOSE-}"
 }
 
 ##
@@ -166,6 +287,19 @@ function host_env_args() {
  #          The command line arguments to forward to the Ironbark container.
  ##
 function main() {
+    # Parse launcher-specific CLI flags (everything before a literal '--').
+    # If no '--' is supplied, all arguments are treated as container args
+    # and forwarded verbatim. The forwarded args are placed in the global
+    # `CONTAINER_ARGS` array - we use a global rather than capturing
+    # stdout because exports performed inside a process substitution
+    # would not propagate back to this shell.
+    parse_launcher_args "$@"
+
+    # Initialise runtime settings AFTER flag parsing so any
+    # `IRONBARK_SCRIPT_*` env vars exported by `parse_launcher_args` take
+    # effect.
+    init_runtime_settings
+
     # Attempt to create the host data directory if it does not exist; if the
     # creation fails (e.g. permission denied) report the underlying error and
     # exit so misconfiguration surfaces immediately.
@@ -206,6 +340,9 @@ function main() {
 
     # `host_env_args` is intentionally unquoted so each `--env KEY=VALUE`
     # token is passed as a separate argument to the container engine.
+    # `CONTAINER_ARGS` is quoted so individual args containing whitespace
+    # are preserved as a single token each. The `+` parameter expansion
+    # avoids triggering `nounset` on an empty array under older bash.
     # shellcheck disable=SC2046
     "${CONTAINER_ENGINE}" run \
         --rm \
@@ -216,7 +353,7 @@ function main() {
         --volume "${IRONBARK_HOST_KUBECONFIG}:/root/.kube/config:z" \
         --volume "${IRONBARK_HOST_DATA_DIR}:/mnt/data:z" \
         "${IRONBARK_SCRIPT_IMAGE}" \
-        "$@"
+        ${CONTAINER_ARGS[@]+"${CONTAINER_ARGS[@]}"}
 }
 
 # ------------------------------------------------------------------------------

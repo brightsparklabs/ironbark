@@ -281,12 +281,21 @@ The generated script:
     ` + "`--interactive`" + ` / ` + "`--tty`" + `.
   - Honours ` + "`IRONBARK_SCRIPT_VERBOSE`" + `: define it to ANY value to print the
     resolved launcher settings to stderr before invoking the container engine.
+  - Accepts launcher-specific CLI flags as a more convenient alternative to
+    setting the equivalent ` + "`IRONBARK_SCRIPT_*`" + ` environment variables.
+    When a literal ` + "`--`" + ` separator appears in the arguments, every
+    argument BEFORE the ` + "`--`" + ` is parsed by the launcher itself and every
+    argument AFTER is forwarded to the Ironbark container verbatim. When no
+    ` + "`--`" + ` is supplied, ALL arguments are forwarded to the container
+    unchanged. Run ` + "`./ironbark --help --`" + ` for the full list of
+    launcher flags.
 
 Example:
 
   ironbark generate launcher > ironbark
   chmod +x ironbark
-  ./ironbark init all
+  ./ironbark init all                 # all args forwarded to the container
+  ./ironbark --no-tty -- init all     # disable --tty, then forward 'init all'
 `,
 		// Suppress cobra's automatic usage/error reprint as `Execute` already
 		// surfaces errors via panic.
