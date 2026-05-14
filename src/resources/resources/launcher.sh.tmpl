@@ -37,13 +37,19 @@ set -o pipefail
 # any CLI flags supplied to the launcher. Initialising them here would cause
 # the CLI flags to be silently ignored.
 
-CONTAINER_ENGINE=""
-IRONBARK_SCRIPT_IMAGE=""
-IRONBARK_HOST_DATA_DIR=""
-IRONBARK_HOST_KUBECONFIG=""
-NO_INTERACTIVE=""
-NO_TTY=""
-VERBOSE=""
+# Resolved-runtime variables. Initialised to empty here only when not
+# already set by the caller's environment - if the operator exported
+# `IRONBARK_SCRIPT_IMAGE` (or any of the other settings) before invoking
+# the launcher, that value is preserved so it can be honoured by
+# `init_runtime_settings`. The `:=` operator does this in-place under
+# `set -o nounset` without tripping the unset-variable guard.
+: "${CONTAINER_ENGINE:=}"
+: "${IRONBARK_SCRIPT_IMAGE:=}"
+: "${IRONBARK_HOST_DATA_DIR:=}"
+: "${IRONBARK_HOST_KUBECONFIG:=}"
+: "${NO_INTERACTIVE:=}"
+: "${NO_TTY:=}"
+: "${VERBOSE:=}"
 
 # Container engine arguments destined for the Ironbark container.
 # Populated by `parse_launcher_args` from the launcher's `"$@"`.
@@ -321,13 +327,34 @@ function main() {
     [[ -n "${NO_TTY}" ]] && tty_flag=""
 
     if [[ -n "${VERBOSE}" ]]; then
+        local _v
         print_verbose "Launching Ironbark container with the following settings:"
-        print_verbose "  CONTAINER_ENGINE        = ${CONTAINER_ENGINE}"
-        print_verbose "  IRONBARK_SCRIPT_IMAGE          = ${IRONBARK_SCRIPT_IMAGE}"
-        print_verbose "  IRONBARK_HOST_DATA_DIR  = ${IRONBARK_HOST_DATA_DIR}"
-        print_verbose "  IRONBARK_HOST_KUBECONFIG= ${IRONBARK_HOST_KUBECONFIG}"
-        print_verbose "  --interactive flag      = $([[ -n "${interactive_flag}" ]] && echo enabled || echo disabled)"
-        print_verbose "  --tty flag              = $([[ -n "${tty_flag}" ]] && echo enabled || echo disabled)"
+        # Resolved runtime values (after CLI-flag and env-var overrides
+        # have been applied). Use a fixed-width alignment so the columns
+        # line up regardless of the variable name's length.
+        printf -v _v '  %-34s = %s' "CONTAINER_ENGINE"             "${CONTAINER_ENGINE}";              print_verbose "${_v}"
+        printf -v _v '  %-34s = %s' "IRONBARK_SCRIPT_IMAGE"        "${IRONBARK_SCRIPT_IMAGE}";         print_verbose "${_v}"
+        printf -v _v '  %-34s = %s' "IRONBARK_HOST_DATA_DIR"       "${IRONBARK_HOST_DATA_DIR}";        print_verbose "${_v}"
+        printf -v _v '  %-34s = %s' "IRONBARK_HOST_KUBECONFIG"     "${IRONBARK_HOST_KUBECONFIG}";      print_verbose "${_v}"
+        printf -v _v '  %-34s = %s' "--interactive flag"           "$([[ -n "${interactive_flag}" ]] && echo enabled || echo disabled)"; print_verbose "${_v}"
+        printf -v _v '  %-34s = %s' "--tty flag"                   "$([[ -n "${tty_flag}" ]] && echo enabled || echo disabled)";         print_verbose "${_v}"
+
+        # Show the IRONBARK_SCRIPT_* env-var overrides as the user
+        # supplied them. An empty value here means "not overridden -
+        # using the baked-in default". Useful for confirming whether a
+        # CLI flag or an exported env var actually took effect.
+        print_verbose "IRONBARK_SCRIPT_* overrides (empty = unset, using baked-in default):"
+        local _name _value
+        for _name in IRONBARK_SCRIPT_CONTAINER_ENGINE \
+                     IRONBARK_SCRIPT_IMAGE \
+                     IRONBARK_SCRIPT_NO_INTERACTIVE \
+                     IRONBARK_SCRIPT_NO_TTY \
+                     IRONBARK_SCRIPT_VERBOSE; do
+            _value="${!_name-}"
+            printf -v _v '  %-34s = %q' "${_name}" "${_value}"
+            print_verbose "${_v}"
+        done
+
         print_verbose "Forwarded host env vars:"
         # `host_env_args` produces a stream of `--env KEY=VALUE` tokens.
         # Re-format them one-per-line for readability.
@@ -336,6 +363,20 @@ function main() {
             [[ "${arg}" == "--env" ]] && continue
             print_verbose "  ${arg}"
         done
+
+        # Show the args that will be forwarded to the Ironbark
+        # container so the operator can confirm the launcher consumed
+        # the launcher-only flags (and only the launcher-only flags).
+        if (( ${#CONTAINER_ARGS[@]} > 0 )); then
+            print_verbose "Container args (forwarded verbatim to image):"
+            local i
+            for (( i = 0; i < ${#CONTAINER_ARGS[@]}; i++ )); do
+                printf -v _v '  argv[%d] = %q' "${i}" "${CONTAINER_ARGS[${i}]}"
+                print_verbose "${_v}"
+            done
+        else
+            print_verbose "Container args: (none - the image's default CMD will run)"
+        fi
     fi
 
     # `host_env_args` is intentionally unquoted so each `--env KEY=VALUE`

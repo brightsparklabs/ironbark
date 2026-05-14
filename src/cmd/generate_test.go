@@ -395,10 +395,14 @@ func TestExecLauncher_cliFlags_endToEnd_executesRenderedScript(t *testing.T) {
 	}
 
 	cases := []struct {
-		name        string
-		args        []string
-		mustContain []string
-		mustOmit    []string
+		name string
+		// envOverrides are appended to `os.Environ()` for the
+		// invocation. Use them to verify env-var-only override
+		// scenarios where no CLI flags are supplied.
+		envOverrides []string
+		args         []string
+		mustContain  []string
+		mustOmit     []string
 	}{
 		{
 			name:        "no separator - all args forwarded verbatim",
@@ -413,7 +417,23 @@ func TestExecLauncher_cliFlags_endToEnd_executesRenderedScript(t *testing.T) {
 				"DEBUG:",
 				// `--no-tty` should disable the engine `--tty`
 				// flag so the verbose log reports it disabled.
-				"--tty flag              = disabled",
+				// We anchor on the prefix and suffix
+				// independently so the assertion does not
+				// brittlely depend on the exact column
+				// alignment used by `printf` in the template.
+				"--tty flag",
+				"= disabled",
+				// Verbose mode must report the resolved
+				// settings AND the IRONBARK_SCRIPT_* override
+				// table so operators can confirm what was
+				// actually applied vs. baked-in.
+				"Launching Ironbark container with the following settings:",
+				"IRONBARK_SCRIPT_* overrides",
+				"IRONBARK_SCRIPT_NO_TTY",
+				// And the resolved container args.
+				"Container args (forwarded verbatim to image):",
+				"argv[0] = init",
+				"argv[1] = all",
 			},
 			mustOmit: []string{
 				// The actual `podman run` invocation must not
@@ -442,11 +462,41 @@ func TestExecLauncher_cliFlags_endToEnd_executesRenderedScript(t *testing.T) {
 				"CMD: docker run",
 			},
 		},
+		{
+			// CLI flags are convenience wrappers - they must
+			// not be required. Operators can still drive the
+			// launcher entirely via IRONBARK_SCRIPT_* exports
+			// even when no `--` separator is supplied.
+			name: "env IRONBARK_SCRIPT_NO_TTY without flags or -- still disables --tty",
+			envOverrides: []string{
+				"IRONBARK_SCRIPT_NO_TTY=true",
+				"IRONBARK_SCRIPT_VERBOSE=true",
+			},
+			args: []string{"init", "all"},
+			mustContain: []string{
+				"brightsparklabs/ironbark:latest init all",
+				"--tty flag",
+				"= disabled",
+			},
+		},
+		{
+			name: "env IRONBARK_SCRIPT_IMAGE without flags or -- still overrides image",
+			envOverrides: []string{
+				"IRONBARK_SCRIPT_IMAGE=registry.example/from-env:1.0",
+			},
+			args: []string{"foo"},
+			mustContain: []string{
+				"registry.example/from-env:1.0 foo",
+			},
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			cmd := exec.Command("bash", append([]string{tmpFile.Name()}, tc.args...)...)
+			if len(tc.envOverrides) > 0 {
+				cmd.Env = append(os.Environ(), tc.envOverrides...)
+			}
 			out, err := cmd.CombinedOutput()
 			if err != nil {
 				t.Fatalf("bash execution failed: %v\noutput:\n%s", err, out)
