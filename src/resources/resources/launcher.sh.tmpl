@@ -31,25 +31,19 @@ set -o pipefail
 # VARIABLES
 # ------------------------------------------------------------------------------
 #
-# These variables are intentionally NOT initialised here. They are populated
-# by `init_runtime_settings` after `parse_launcher_args` has had a chance to
-# set the corresponding `IRONBARK_SCRIPT_*` environment variables based on
-# any CLI flags supplied to the launcher. Initialising them here would cause
-# the CLI flags to be silently ignored.
+# Pre-declare every runtime setting so it is defined-but-empty by the
+# time `set -o nounset` starts watching, while preserving any value the
+# operator already exported. `init_runtime_settings` (called from
+# `main` after `parse_launcher_args`) substitutes the baked-in defaults
+# for any variable that is still empty after CLI-flag parsing.
 
-# Resolved-runtime variables. Initialised to empty here only when not
-# already set by the caller's environment - if the operator exported
-# `IRONBARK_SCRIPT_IMAGE` (or any of the other settings) before invoking
-# the launcher, that value is preserved so it can be honoured by
-# `init_runtime_settings`. The `:=` operator does this in-place under
-# `set -o nounset` without tripping the unset-variable guard.
-: "${CONTAINER_ENGINE:=}"
+: "${IRONBARK_SCRIPT_CONTAINER_ENGINE:=}"
 : "${IRONBARK_SCRIPT_IMAGE:=}"
+: "${IRONBARK_SCRIPT_NO_INTERACTIVE:=}"
+: "${IRONBARK_SCRIPT_NO_TTY:=}"
+: "${IRONBARK_SCRIPT_VERBOSE:=}"
 : "${IRONBARK_HOST_DATA_DIR:=}"
 : "${IRONBARK_HOST_KUBECONFIG:=}"
-: "${NO_INTERACTIVE:=}"
-: "${NO_TTY:=}"
-: "${VERBOSE:=}"
 
 # Container engine arguments destined for the Ironbark container.
 # Populated by `parse_launcher_args` from the launcher's `"$@"`.
@@ -76,13 +70,14 @@ function print_info() { echo "$(date -Iseconds) INFO: $*" >&2; }
 function print_error() { echo "$(date -Iseconds) ERROR: $*" >&2; }
 
 ##
- # Prints a verbose-mode debug message to stderr if `VERBOSE` is defined.
+ # Prints a verbose-mode debug message to stderr if
+ # `IRONBARK_SCRIPT_VERBOSE` is defined.
  #
  # @param $*
  #          The message to print.
  ##
 function print_verbose() {
-    [[ -n "${VERBOSE}" ]] && echo "$(date -Iseconds) DEBUG: $*" >&2
+    [[ -n "${IRONBARK_SCRIPT_VERBOSE}" ]] && echo "$(date -Iseconds) DEBUG: $*" >&2
     return 0
 }
 
@@ -197,39 +192,33 @@ function parse_launcher_args() {
  # `parse_launcher_args` so that any CLI-flag overrides take effect.
  ##
 function init_runtime_settings() {
-    CONTAINER_ENGINE="${IRONBARK_SCRIPT_CONTAINER_ENGINE:-{{ .Engine }}}"
+    # Container engine to use (`podman` or `docker`).
+    IRONBARK_SCRIPT_CONTAINER_ENGINE="${IRONBARK_SCRIPT_CONTAINER_ENGINE:-{{ .Engine }}}"
+
+    # Container image to launch.
     IRONBARK_SCRIPT_IMAGE="${IRONBARK_SCRIPT_IMAGE:-{{ .Image }}}"
 
     # Host directory which holds Ironbark application data.
     # Mounted into the container at `/mnt/data` and re-exposed inside the
     # container as `IRONBARK_HOST_DATA_DIR` so Ironbark can correctly
     # reference files on the host (e.g. when invoking nested container
-    # engines). Override at runtime by exporting `IRONBARK_HOST_DATA_DIR`.
+    # engines).
     IRONBARK_HOST_DATA_DIR="${IRONBARK_HOST_DATA_DIR:-{{ .HostDataDir }}}"
 
     # Host kubeconfig file to mount into the container.
-    # Override at runtime by exporting `IRONBARK_HOST_KUBECONFIG`.
     IRONBARK_HOST_KUBECONFIG="${IRONBARK_HOST_KUBECONFIG:-{{ .HostKubeconfig }}}"
 
     # Disable the container engine `--interactive` flag.
     # Define `IRONBARK_SCRIPT_NO_INTERACTIVE` to ANY value to disable.
 {{ if .NoInteractive -}}
-    NO_INTERACTIVE="${IRONBARK_SCRIPT_NO_INTERACTIVE-true}"
-{{- else -}}
-    NO_INTERACTIVE="${IRONBARK_SCRIPT_NO_INTERACTIVE-}"
+    IRONBARK_SCRIPT_NO_INTERACTIVE="${IRONBARK_SCRIPT_NO_INTERACTIVE:-true}"
 {{- end }}
 
     # Disable the container engine `--tty` flag.
     # Define `IRONBARK_SCRIPT_NO_TTY` to ANY value to disable.
 {{ if .NoTTY -}}
-    NO_TTY="${IRONBARK_SCRIPT_NO_TTY-true}"
-{{- else -}}
-    NO_TTY="${IRONBARK_SCRIPT_NO_TTY-}"
+    IRONBARK_SCRIPT_NO_TTY="${IRONBARK_SCRIPT_NO_TTY:-true}"
 {{- end }}
-
-    # Print launcher settings to stderr before invoking the container.
-    # Define `IRONBARK_SCRIPT_VERBOSE` to ANY value to enable.
-    VERBOSE="${IRONBARK_SCRIPT_VERBOSE-}"
 }
 
 ##
@@ -283,7 +272,7 @@ function host_env_args() {
     printf -- '--env IRONBARK_HOST_KUBECONFIG=%q ' "${IRONBARK_HOST_KUBECONFIG}"
 
     # Container engine context.
-    printf -- '--env IRONBARK_HOST_CONTAINER_ENGINE=%q ' "${CONTAINER_ENGINE}"
+    printf -- '--env IRONBARK_HOST_CONTAINER_ENGINE=%q ' "${IRONBARK_SCRIPT_CONTAINER_ENGINE}"
 }
 
 ##
@@ -321,39 +310,38 @@ function main() {
     # If the disable variable is defined to ANY value, the corresponding flag
     # is omitted; leave the variable unset to keep the flag enabled.
     local interactive_flag="--interactive"
-    [[ -n "${NO_INTERACTIVE}" ]] && interactive_flag=""
+    [[ -n "${IRONBARK_SCRIPT_NO_INTERACTIVE}" ]] && interactive_flag=""
 
     local tty_flag="--tty"
-    [[ -n "${NO_TTY}" ]] && tty_flag=""
+    [[ -n "${IRONBARK_SCRIPT_NO_TTY}" ]] && tty_flag=""
 
-    if [[ -n "${VERBOSE}" ]]; then
+    if [[ -n "${IRONBARK_SCRIPT_VERBOSE}" ]]; then
         local _v
-        print_verbose "Launching Ironbark container with the following settings:"
-        # Resolved runtime values (after CLI-flag and env-var overrides
-        # have been applied). Use a fixed-width alignment so the columns
-        # line up regardless of the variable name's length.
-        printf -v _v '  %-34s = %s' "CONTAINER_ENGINE"             "${CONTAINER_ENGINE}";              print_verbose "${_v}"
-        printf -v _v '  %-34s = %s' "IRONBARK_SCRIPT_IMAGE"        "${IRONBARK_SCRIPT_IMAGE}";         print_verbose "${_v}"
-        printf -v _v '  %-34s = %s' "IRONBARK_HOST_DATA_DIR"       "${IRONBARK_HOST_DATA_DIR}";        print_verbose "${_v}"
-        printf -v _v '  %-34s = %s' "IRONBARK_HOST_KUBECONFIG"     "${IRONBARK_HOST_KUBECONFIG}";      print_verbose "${_v}"
-        printf -v _v '  %-34s = %s' "--interactive flag"           "$([[ -n "${interactive_flag}" ]] && echo enabled || echo disabled)"; print_verbose "${_v}"
-        printf -v _v '  %-34s = %s' "--tty flag"                   "$([[ -n "${tty_flag}" ]] && echo enabled || echo disabled)";         print_verbose "${_v}"
-
-        # Show the IRONBARK_SCRIPT_* env-var overrides as the user
-        # supplied them. An empty value here means "not overridden -
-        # using the baked-in default". Useful for confirming whether a
-        # CLI flag or an exported env var actually took effect.
-        print_verbose "IRONBARK_SCRIPT_* overrides (empty = unset, using baked-in default):"
-        local _name _value
-        for _name in IRONBARK_SCRIPT_CONTAINER_ENGINE \
-                     IRONBARK_SCRIPT_IMAGE \
-                     IRONBARK_SCRIPT_NO_INTERACTIVE \
-                     IRONBARK_SCRIPT_NO_TTY \
-                     IRONBARK_SCRIPT_VERBOSE; do
-            _value="${!_name-}"
-            printf -v _v '  %-34s = %q' "${_name}" "${_value}"
+        # Resolved settings table - one row per variable, columns
+        # aligned on the longest variable name
+        # (`IRONBARK_SCRIPT_CONTAINER_ENGINE` at 32 chars). Every
+        # variable is referenced by its full `IRONBARK_*` env-var name
+        # so the operator can copy any row directly into an `export`
+        # statement to reproduce the same setting.
+        print_verbose "Resolved launcher settings (after CLI-flag and env-var overrides):"
+        local _setting
+        for _setting in IRONBARK_SCRIPT_CONTAINER_ENGINE \
+                        IRONBARK_SCRIPT_IMAGE \
+                        IRONBARK_SCRIPT_NO_INTERACTIVE \
+                        IRONBARK_SCRIPT_NO_TTY \
+                        IRONBARK_SCRIPT_VERBOSE \
+                        IRONBARK_HOST_DATA_DIR \
+                        IRONBARK_HOST_KUBECONFIG; do
+            printf -v _v '  %-34s = %q' "${_setting}" "${!_setting-}"
             print_verbose "${_v}"
         done
+        # Derived flags (computed from the IRONBARK_SCRIPT_NO_* settings).
+        printf -v _v '  %-34s = %s' "(derived) --interactive flag" \
+            "$([[ -n "${interactive_flag}" ]] && echo enabled || echo disabled)"
+        print_verbose "${_v}"
+        printf -v _v '  %-34s = %s' "(derived) --tty flag" \
+            "$([[ -n "${tty_flag}" ]] && echo enabled || echo disabled)"
+        print_verbose "${_v}"
 
         print_verbose "Forwarded host env vars:"
         # `host_env_args` produces a stream of `--env KEY=VALUE` tokens.
@@ -385,7 +373,7 @@ function main() {
     # are preserved as a single token each. The `+` parameter expansion
     # avoids triggering `nounset` on an empty array under older bash.
     # shellcheck disable=SC2046
-    "${CONTAINER_ENGINE}" run \
+    "${IRONBARK_SCRIPT_CONTAINER_ENGINE}" run \
         --rm \
         ${interactive_flag} \
         ${tty_flag} \

@@ -205,7 +205,7 @@ func TestExecLauncher_withNoInteractiveFlag_bakesDisableDefault(t *testing.T) {
 
 	got := renderLauncher(t, data)
 
-	if !strings.Contains(got, `NO_INTERACTIVE="${IRONBARK_SCRIPT_NO_INTERACTIVE-true}"`) {
+	if !strings.Contains(got, `IRONBARK_SCRIPT_NO_INTERACTIVE="${IRONBARK_SCRIPT_NO_INTERACTIVE:-true}"`) {
 		t.Errorf("expected NO_INTERACTIVE to default to `true`, got:\n%s", got)
 	}
 }
@@ -219,23 +219,41 @@ func TestExecLauncher_withNoTTYFlag_bakesDisableDefault(t *testing.T) {
 
 	got := renderLauncher(t, data)
 
-	if !strings.Contains(got, `NO_TTY="${IRONBARK_SCRIPT_NO_TTY-true}"`) {
+	if !strings.Contains(got, `IRONBARK_SCRIPT_NO_TTY="${IRONBARK_SCRIPT_NO_TTY:-true}"`) {
 		t.Errorf("expected NO_TTY to default to `true`, got:\n%s", got)
 	}
 }
 
 // TestExecLauncher_withDefaults_doesNotBakeDisableDefaults verifies that
 // when `NoInteractive` and `NoTTY` are both false the rendered script
-// defaults the corresponding env vars to empty (so `--interactive` and
-// `--tty` are kept enabled).
+// does NOT contain the bake-default assignment that would otherwise
+// disable the corresponding container engine flag. The variables are
+// still pre-declared (defined-but-empty) at the top of the script via
+// the central `: "${VAR:=}"` block, so the omission is what keeps
+// `--interactive` and `--tty` enabled by default.
 func TestExecLauncher_withDefaults_doesNotBakeDisableDefaults(t *testing.T) {
 	got := renderLauncher(t, validLauncherData())
 
-	if !strings.Contains(got, `NO_INTERACTIVE="${IRONBARK_SCRIPT_NO_INTERACTIVE-}"`) {
-		t.Errorf("expected NO_INTERACTIVE to default to empty, got:\n%s", got)
+	bakeDefaults := []string{
+		`IRONBARK_SCRIPT_NO_INTERACTIVE="${IRONBARK_SCRIPT_NO_INTERACTIVE:-true}"`,
+		`IRONBARK_SCRIPT_NO_TTY="${IRONBARK_SCRIPT_NO_TTY:-true}"`,
 	}
-	if !strings.Contains(got, `NO_TTY="${IRONBARK_SCRIPT_NO_TTY-}"`) {
-		t.Errorf("expected NO_TTY to default to empty, got:\n%s", got)
+	for _, unwanted := range bakeDefaults {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("expected rendered launcher to NOT contain bake-default %q, got:\n%s", unwanted, got)
+		}
+	}
+
+	// And the variables must still be pre-declared so unset access is
+	// safe under `set -o nounset`.
+	preDeclared := []string{
+		`: "${IRONBARK_SCRIPT_NO_INTERACTIVE:=}"`,
+		`: "${IRONBARK_SCRIPT_NO_TTY:=}"`,
+	}
+	for _, want := range preDeclared {
+		if !strings.Contains(got, want) {
+			t.Errorf("expected rendered launcher to contain pre-declaration %q, got:\n%s", want, got)
+		}
 	}
 }
 
@@ -271,7 +289,7 @@ func TestExecLauncher_withMixedCaseEngine_normalisesToLower(t *testing.T) {
 
 	got := renderLauncher(t, data)
 
-	if !strings.Contains(got, `CONTAINER_ENGINE="${IRONBARK_SCRIPT_CONTAINER_ENGINE:-podman}"`) {
+	if !strings.Contains(got, `IRONBARK_SCRIPT_CONTAINER_ENGINE="${IRONBARK_SCRIPT_CONTAINER_ENGINE:-podman}"`) {
 		t.Errorf("expected engine to be normalised to lower case, got:\n%s", got)
 	}
 }
@@ -285,7 +303,7 @@ func TestExecLauncher_withSurroundingWhitespace_trimsEngine(t *testing.T) {
 
 	got := renderLauncher(t, data)
 
-	if !strings.Contains(got, `CONTAINER_ENGINE="${IRONBARK_SCRIPT_CONTAINER_ENGINE:-docker}"`) {
+	if !strings.Contains(got, `IRONBARK_SCRIPT_CONTAINER_ENGINE="${IRONBARK_SCRIPT_CONTAINER_ENGINE:-docker}"`) {
 		t.Errorf("expected engine to be trimmed, got:\n%s", got)
 	}
 }
@@ -367,8 +385,8 @@ func TestExecLauncher_cliFlags_endToEnd_executesRenderedScript(t *testing.T) {
 	rendered := renderLauncher(t, validLauncherData())
 	stubbed := strings.Replace(
 		rendered,
-		`"${CONTAINER_ENGINE}" run`,
-		`echo CMD: "${CONTAINER_ENGINE}" run`,
+		`"${IRONBARK_SCRIPT_CONTAINER_ENGINE}" run`,
+		`echo CMD: "${IRONBARK_SCRIPT_CONTAINER_ENGINE}" run`,
 		1,
 	)
 
@@ -424,11 +442,9 @@ func TestExecLauncher_cliFlags_endToEnd_executesRenderedScript(t *testing.T) {
 				"--tty flag",
 				"= disabled",
 				// Verbose mode must report the resolved
-				// settings AND the IRONBARK_SCRIPT_* override
-				// table so operators can confirm what was
-				// actually applied vs. baked-in.
-				"Launching Ironbark container with the following settings:",
-				"IRONBARK_SCRIPT_* overrides",
+				// settings table so operators can confirm
+				// what was actually applied vs. baked-in.
+				"Resolved launcher settings",
 				"IRONBARK_SCRIPT_NO_TTY",
 				// And the resolved container args.
 				"Container args (forwarded verbatim to image):",
@@ -650,7 +666,7 @@ func TestExecZarfBootstrap_withMixedCaseEngine_normalisesToLower(t *testing.T) {
 
 	got := renderZarfBootstrap(t, data)
 
-	if !strings.Contains(got, `CONTAINER_ENGINE="${IRONBARK_SCRIPT_CONTAINER_ENGINE:-podman}"`) {
+	if !strings.Contains(got, `IRONBARK_SCRIPT_CONTAINER_ENGINE="${IRONBARK_SCRIPT_CONTAINER_ENGINE:-podman}"`) {
 		t.Errorf("expected engine to be normalised to lower case, got:\n%s", got)
 	}
 }
