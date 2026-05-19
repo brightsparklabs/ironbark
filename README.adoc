@@ -80,11 +80,13 @@ Zarf Secrets Sync:: Ensures Zarf registry/repo credentials are available in all 
 
 === Prerequisites
 
-* Kubernetes cluster (K3s, etc.).
-* `kubectl` configured and connected to your cluster.
-* Zarf already initialised on the cluster (`zarf init`).
+* The environment has a working Kubernetes cluster (EKS, K3s, etc.).
+* `kubectl` is configured and connected to the cluster.
+* Zarf has been initialised on the cluster (`zarf init`).
 
-=== Procedure
+If the above are not met, refer to <<Bootstrapping an Environment>>.
+
+=== Steps
 
 Generate a launcher script using the Ironbark container.
 The launcher wraps the underlying container engine invocation so you can run `ironbark` directly:
@@ -155,16 +157,21 @@ docker run --rm brightsparklabs/ironbark generate launcher \
 chmod +x /opt/brightsparklabs/ironbark/bin/ironbark
 ----
 
-=== Bootstrapping a Host with Zarf
+=== Bootstrapping an Environment
 
-When bootstrapping a fresh host (e.g. installing K3s via `zarf init`) you need the `zarf` CLI and the `zarf-init-*.tar.zst` package on the host itself.
+[IMPORTANT]
+--
+This section applies if any of the following are true:
+
+* The environment does not have a working Kubernetes cluster.
+* Zarf has not been initialised on the cluster (`zarf init`).
+--
+
+==== Extract Bootstrap Script
+
+When bootstrapping an fresh environment you need the `zarf` CLI and the `zarf-init-*.tar.zst` package on the host itself.
 The Ironbark container ships both at `/app/resources/zarf/init`.
-Rather than manually invoking `podman cp ...`, generate a host-side extraction script.
-
-This is only required when the target host does not already have a Kubernetes cluster available; if a cluster already exists, Ironbark can talk to it directly via its kubeconfig and you can skip this step entirely.
-
-Before emitting the script, `generate zarf-bootstrap` verifies that the Zarf assets (the `zarf` CLI and a matching `zarf-init-*.tar.zst` package) actually exist at the configured source path.
-This catches misconfigurations such as a stale image or a wrong `--source-path` early, instead of letting the operator discover the problem after running the resulting script on the host.
+These can be extracted using a host-side extraction script.
 
 [source,bash]
 ----
@@ -174,10 +181,8 @@ ironbark generate zarf-bootstrap > extract-zarf.sh
 chmod +x extract-zarf.sh
 ./extract-zarf.sh
 
-# Bootstrap the host (installs K3s and the Zarf in-cluster components).
-# `zarf init` is interactive; the operator is prompted to confirm.
-cd /opt/brightsparklabs/ironbark/data/zarf/init
-sudo ./zarf init
+# Ensure the current user can run initialise the cluster.
+sudo chown -R "$(id -u):$(id -g)" /opt/brightsparklabs/ironbark/data/zarf/init
 ----
 
 Available options for `ironbark generate zarf-bootstrap`:
@@ -186,17 +191,71 @@ Available options for `ironbark generate zarf-bootstrap`:
 `--container-engine`, `-e`:: Container engine to use (`podman` or `docker`). Default: `podman`.
 `--image`, `-i`:: Container image reference for Ironbark. Default: `brightsparklabs/ironbark:latest`.
 `--source-path`, `-s`:: Path inside the container containing the Zarf CLI and init package. Default: `/app/resources/zarf/init`.
-`--output-dir`, `-o`:: Host directory which will receive the extracted Zarf assets. Default: `/opt/brightsparklabs/ironbark/data/zarf/init` (sits inside the launcher's default data directory so no extra mount is required).
+`--output-dir`, `-o`:: Host directory which will receive the extracted Zarf assets. Default: `/opt/brightsparklabs/ironbark/data/zarf/init` (NOTE: This is inside the launcher's default data directory so no extra mount is required).
 
-The generated script:
+*The generated script:*
 
 * Validates that the requested container engine is available on `PATH`.
 * Creates the output directory if it does not already exist.
-* Creates a throwaway Ironbark container, copies the Zarf assets out, then removes the throwaway container (always, via a `trap`).
-* Honours runtime overrides via `IRONBARK_SCRIPT_CONTAINER_ENGINE`, `IRONBARK_SCRIPT_IMAGE`, `IRONBARK_SCRIPT_ZARF_SOURCE_PATH`, `IRONBARK_SCRIPT_ZARF_OUTPUT_DIR`, and `IRONBARK_SCRIPT_VERBOSE`, so you can change the defaults without regenerating the script.
+* Creates a throwaway Ironbark container, copies the Zarf assets out, then removes the throwaway container.
+* Honours the following runtime overrides so you can change the defaults without regenerating the script:
+.. `IRONBARK_SCRIPT_CONTAINER_ENGINE`
+.. `IRONBARK_SCRIPT_IMAGE`
+.. `IRONBARK_SCRIPT_ZARF_SOURCE_PATH`
+.. `IRONBARK_SCRIPT_ZARF_OUTPUT_DIR`
+.. `IRONBARK_SCRIPT_VERBOSE`
 * Does NOT run `zarf init` itself; the operator retains explicit control over the bootstrap step.
 
-=== Generating fapolicyd Rules
+[IMPORTANT]
+--
+Before emitting the script, `generate zarf-bootstrap` verifies that the Zarf assets (the `zarf` CLI and a matching `zarf-init-*.tar.zst` package) actually exist at the configured source path.
+This catches misconfigurations such as a stale image or a wrong `--source-path` early, instead of letting the operator discover the problem after running the resulting script on the host.
+--
+
+==== Bootstrap an Existing Cluster
+
+[NOTE]
+--
+This section applies when the following are true:
+
+. The environment has a working Kubernetes cluster (EKS, K3s, etc.).
+. `kubectl` is configured and connected to the cluster.
+. Zarf has not been initialised on the cluster (`zarf init`).
+--
+
+Bootstrap the environment by running the script:
+
+[source,bash]
+----
+# Bootstrap the host (installs the Zarf in-cluster components).
+cd /opt/brightsparklabs/ironbark/data/zarf/init
+./zarf init --components=git-server --confirm
+----
+
+==== Bootstrap a New Cluster
+
+[NOTE]
+--
+This section applies when the following are true:
+
+. A new Kubernetes cluster should be created.
+--
+
+IMPORTANT: If `fapolicyd` is running ensure the correct rules have been generated as per <<Generating fapolicyd Rules>>.
+
+Bootstrap the environment by running the script:
+
+[source,bash]
+----
+# NOTE: Must be run as root (not sudo) in order to install K3s.
+sudo -i
+
+# Bootstrap the host (installs K3s and the Zarf in-cluster components).
+cd /opt/brightsparklabs/ironbark/data/zarf/init
+./zarf init --confirm
+----
+
+==== Generating fapolicyd Rules
 
 Hosts that enforce `fapolicyd` need explicit rules to allow execution of the binaries Ironbark relies on (the extracted `zarf` CLI and the installed `k3s` CLI).
 Generate a matching rules file with:
@@ -208,7 +267,7 @@ Generate a matching rules file with:
 ironbark generate fapolicy-rules \
   --zarf-path /opt/brightsparklabs/ironbark/data/zarf/init/zarf \
   --k3s-path /usr/local/bin/k3s \
-  | sudo tee /etc/fapolicyd/rules.d/30-ironbark.rules > /dev/null
+  | sudo tee /etc/fapolicyd/rules.d/30-ironbark.rules
 sudo systemctl restart fapolicyd
 ----
 
@@ -413,6 +472,31 @@ Variables marked sensitive (currently none) are rendered with their values redac
 To add a new application to your Ironbark deployment:
 
 . Ensure the Helm chart is mirrored to the Zarf OCI registry (via a Zarf package).
++
+[IMPORTANT]
+--
+The chart must:
+
+. Be pulled from from an OCI registry.
+  E.g. `oci://ghcr.io/cowboysysop/charts/whoami`.
+. Be manually included in the `images` block of the Zarf package.
+  E.g.
++
+[source,yaml]
+----
+kind: ZarfPackageConfig
+...
+components:
+  - name: ...
+    ...
+    images:
+      # Images used by the chart.
+      - ...
+
+      # IMPORTANT: The chart as an OCI artifact to ensure chart is in OCI registry for ArgoCD.
+      - ghcr.io/cowboysysop/charts/whoami:6.0.0
+----
+--
 
 . Edit the App of Apps configuration:
 +
