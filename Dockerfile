@@ -15,8 +15,8 @@ ARG UBUNTU_IMAGE=ubuntu:24.04
 ARG GOLANG_VERSION=1.26.3
 
 # Tool versions.
-ARG KUBECTL_VERSION=v1.34.1
-ARG ZARF_VERSION=v0.64.0
+ARG KUBECTL_VERSION=v1.36.1
+ARG ZARF_VERSION=v0.76.0
 
 # ------------------------------------------------------------------------------
 # BUILDER STAGE - TOOLING
