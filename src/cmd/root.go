@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	zarfcmd "github.com/zarf-dev/zarf/src/cmd"
 )
 
 // -----------------------------------------------------------------------------
@@ -95,36 +94,24 @@ func ExecuteWithDeps(stderr io.Writer) int {
 // PRIVATE FUNCTIONS
 // -----------------------------------------------------------------------------
 
-// registerSubcommands wires every subcommand onto `rootCmd`. Extracted
-// from `Execute` so the test entry point and the production entry
-// point share the same registration logic.
+// registerSubcommands wires every subcommand onto `rootCmd`.
+// Extracted from `Execute` so the test entry point and the production
+// entry point share the same registration logic.
 //
-// `init()` cannot be used here because the nested `list-packages`
-// command needs a reference to a fresh `NewZarfCommand` constructed
-// at call time.
+// Guard against double-registration when `ExecuteWithDeps` is invoked
+// more than once in the same process (e.g. across table-driven
+// tests).
 func registerSubcommands() {
-	zarfCmd := zarfcmd.NewZarfCommand()
-
-	nestedZarfCmd := &cobra.Command{
-		Use: "list-packages",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			zarfCmd.SetArgs([]string{"package", "list"})
-			return zarfCmd.Execute()
-		},
+	if hasSubcommand(rootCmd, "version") {
+		return
 	}
-
-	// Guard against double-registration when `ExecuteWithDeps` is
-	// invoked more than once in the same process (e.g. across
-	// table-driven tests).
-	if !hasSubcommand(rootCmd, "list-packages") {
-		rootCmd.AddCommand(nestedZarfCmd)
-		rootCmd.AddCommand(newArgoCmd())
-		rootCmd.AddCommand(newInitCmd())
-		rootCmd.AddCommand(newGenerateCmd())
-		rootCmd.AddCommand(newVersionCmd())
-		rootCmd.AddCommand(newDebugCmd())
-		rootCmd.AddCommand(newDocsCmd())
-	}
+	rootCmd.AddCommand(newArgoCmd())
+	rootCmd.AddCommand(newInitCmd())
+	rootCmd.AddCommand(newGenerateCmd())
+	rootCmd.AddCommand(newVersionCmd())
+	rootCmd.AddCommand(newDebugCmd())
+	rootCmd.AddCommand(newDocsCmd())
+	rootCmd.AddCommand(newExecCmd())
 }
 
 // hasSubcommand returns true if `parent` already has a direct child
