@@ -33,6 +33,18 @@ const zarfBootstrapTemplateFile = "zarf-bootstrap.sh.tmpl"
 // directory) of the fapolicyd rules template.
 const fapolicyRulesTemplateFile = "fapolicy-rules.tmpl"
 
+// installerTemplateFile is the path (relative to the embedded resources
+// directory) of the installer script template.
+const installerTemplateFile = "installer.sh.tmpl"
+
+// defaultInstallerBaseDir is the default base directory under which the
+// installer will create the per-release-environment subdirectory.
+const defaultInstallerBaseDir = "/opt/brightsparklabs/ironbark"
+
+// defaultInstallerReleaseEnvironment is the default release environment
+// the installer targets when `--release-environment` is not supplied.
+const defaultInstallerReleaseEnvironment = "production"
+
 // defaultLauncherImage is the default container image used by the generated
 // launcher script.
 const defaultLauncherImage = "brightsparklabs/ironbark:latest"
@@ -49,7 +61,7 @@ const defaultLauncherKubeconfig = "${HOME}/.kube/config"
 // the container by the generated launcher script. Aligns with the
 // canonical Ironbark install layout under `/opt/brightsparklabs/ironbark`
 // so a default-flag launcher install works out of the box.
-const defaultLauncherDataDir = "/opt/brightsparklabs/ironbark/data"
+const defaultLauncherDataDir = "/opt/brightsparklabs/ironbark/production/data"
 
 // defaultZarfBootstrapSourcePath is the default path inside the
 // Ironbark container which contains the `zarf` CLI and the
@@ -77,12 +89,12 @@ const defaultZarfBootstrapSourcePath = "/app/resources/zarf/init"
 // IMPORTANT: must stay aligned with `defaultLauncherDataDir` (the parent
 // directory) and with `defaultFapolicyZarfPath` (the resulting `zarf`
 // binary path used by the default fapolicyd rules).
-const defaultZarfBootstrapOutputDir = "/opt/brightsparklabs/ironbark/data/zarf/init"
+const defaultZarfBootstrapOutputDir = "/opt/brightsparklabs/ironbark/production/data/zarf/init"
 
 // defaultFapolicyZarfPath is the default host path of the extracted
 // `zarf` CLI used in the generated fapolicyd rules. Aligns with
 // `defaultZarfBootstrapOutputDir` (`<output-dir>/zarf`).
-const defaultFapolicyZarfPath = "/opt/brightsparklabs/ironbark/data/zarf/init/zarf"
+const defaultFapolicyZarfPath = "/opt/brightsparklabs/ironbark/production/data/zarf/init/zarf"
 
 // defaultFapolicyK3sPath is the default host path of the installed `k3s`
 // CLI used in the generated fapolicyd rules. Matches the standard K3s
@@ -195,6 +207,36 @@ type zarfBootstrapTemplateData struct {
 	IronbarkBuildTime string
 }
 
+// installerTemplateData holds the values rendered into the installer
+// script template.
+type installerTemplateData struct {
+	// InstallBaseDir is the base directory under which the
+	// per-release-environment install directory is created (e.g.
+	// `/opt/brightsparklabs/ironbark`).
+	InstallBaseDir string
+	// ReleaseEnvironment is the release environment the installer
+	// targets (e.g. `production`).
+	ReleaseEnvironment string
+	// InstallDir is the final per-release-environment install directory
+	// (`<InstallBaseDir>/<ReleaseEnvironment>`).
+	InstallDir string
+	// LauncherScript is the fully-rendered launcher script (output of
+	// `execLauncher`) inlined into the installer's heredoc.
+	LauncherScript string
+	// GeneratedAt is an ISO 8601 timestamp recording when the script was
+	// generated.
+	GeneratedAt string
+	// IronbarkVersion is the version of the Ironbark binary that
+	// generated the installer script.
+	IronbarkVersion string
+	// IronbarkCommit is the short Git commit hash of the Ironbark binary
+	// that generated the installer script.
+	IronbarkCommit string
+	// IronbarkBuildTime is the UTC ISO 8601 timestamp recording when the
+	// Ironbark binary that generated the installer script was built.
+	IronbarkBuildTime string
+}
+
 // fapolicyRulesTemplateData holds the values rendered into the fapolicyd
 // rules template.
 type fapolicyRulesTemplateData struct {
@@ -238,6 +280,7 @@ to a file (or piped into another tool) by the caller.
 	cmd.AddCommand(newGenerateLauncherCmd())
 	cmd.AddCommand(newGenerateZarfBootstrapCmd())
 	cmd.AddCommand(newGenerateFapolicyRulesCmd())
+	cmd.AddCommand(newGenerateInstallerCmd())
 
 	return cmd
 }
@@ -411,7 +454,7 @@ Example:
   ironbark generate zarf-bootstrap > extract-zarf.sh
   chmod +x extract-zarf.sh
   ./extract-zarf.sh
-  cd /opt/brightsparklabs/ironbark/data/zarf/init
+  cd /opt/brightsparklabs/ironbark/production/data/zarf/init
   sudo ./zarf init
 `,
 		// Suppress cobra's automatic usage/error reprint as `Execute` already
@@ -567,7 +610,7 @@ tool). After installing the file, reload fapolicyd:
 Example:
 
   ironbark generate fapolicy-rules \
-      --zarf-path /opt/brightsparklabs/ironbark/data/zarf/init/zarf \
+      --zarf-path /opt/brightsparklabs/ironbark/production/data/zarf/init/zarf \
       --k3s-path /usr/local/bin/k3s \
       | sudo tee /etc/fapolicyd/rules.d/30-ironbark.rules > /dev/null
   sudo systemctl restart fapolicyd
@@ -627,6 +670,169 @@ func execFapolicyRules(out io.Writer, data fapolicyRulesTemplateData) error {
 
 	if err := tmpl.Execute(out, data); err != nil {
 		return fmt.Errorf("could not render fapolicy-rules template: %w", err)
+	}
+
+	return nil
+}
+
+// -----------------------------------------------------------------------------
+// COMMAND: installer
+// -----------------------------------------------------------------------------
+
+// newGenerateInstallerCmd creates the `generate installer` command which
+// generates a self-contained bash installer script for setting up Ironbark
+// on a target host.
+func newGenerateInstallerCmd() *cobra.Command {
+	var (
+		installBaseDir     string
+		releaseEnvironment string
+
+		// Launcher pass-through flags. These mirror `generate launcher` so
+		// the installer can produce a fully-configured launcher with the
+		// same level of control.
+		//
+		// NOTE: `--data-dir` is deliberately NOT exposed - the installer
+		// creates `<install-dir>/data/{zarf/init,repos}` on the host and
+		// bakes that same path into the inlined launcher's data-dir, so
+		// the two stay consistent. Allowing the operator to override it
+		// would silently desync the directories the installer creates
+		// from those the launcher mounts.
+		engine         string
+		image          string
+		hostKubeconfig string
+		noInteractive  bool
+		noTTY          bool
+	)
+
+	cmd := &cobra.Command{
+		Use:   "installer",
+		Short: "Generate a self-contained installer script for Ironbark",
+		Long: `Generate a self-contained bash installer script for Ironbark.
+
+The generated script is written to standard output. When piped through
+` + "`bash`" + ` on a target host it will:
+
+  - Create the per-release-environment install directory tree under
+    ` + "`<install-base-dir>/<release-environment>/`" + ` (defaults to
+    ` + "`/opt/brightsparklabs/ironbark/production/`" + `), including:
+      - ` + "`bin/`" + `
+      - ` + "`data/zarf/init/`" + `
+      - ` + "`data/repos/`" + `
+  - Restore ownership of the install tree to the invoking user/group
+    (` + "`SUDO_USER`" + ` falling back to ` + "`USER`" + `).
+  - If ` + "`setfacl`" + ` is available, apply recursive default ACLs on the
+    install base directory granting the invoking user/group rwx, so new
+    files created beneath it inherit the right permissions.
+  - Write a versioned launcher script as
+    ` + "`<install-dir>/bin/.<timestamp>_ironbark_<version>`" + ` and
+    (re)point the generic ` + "`<install-dir>/bin/ironbark`" + ` symlink at
+    it. The launcher inlined into the installer is equivalent to the
+    output of ` + "`ironbark generate launcher`" + `, so the same launcher
+    flags apply.
+
+Example:
+
+  # Generate the installer and write it to a file:
+  ironbark generate installer > install-ironbark.sh
+  chmod +x install-ironbark.sh
+  sudo ./install-ironbark.sh
+
+  # Or pipe directly into bash:
+  ironbark generate installer --release-environment staging | sudo bash
+`,
+		// Suppress cobra's automatic usage/error reprint as `Execute` already
+		// surfaces errors via panic.
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return execInstaller(os.Stdout, installerTemplateData{
+				InstallBaseDir:     installBaseDir,
+				ReleaseEnvironment: releaseEnvironment,
+			}, launcherTemplateData{
+				Engine: engine,
+				Image:  image,
+				// HostDataDir is intentionally left unset here; it is
+				// derived from the install directory inside
+				// `execInstaller` to ensure the launcher and installer
+				// agree on the data directory location.
+				HostKubeconfig: hostKubeconfig,
+				NoInteractive:  noInteractive,
+				NoTTY:          noTTY,
+			})
+		},
+	}
+
+	// Installer-specific flags.
+	cmd.Flags().StringVar(&installBaseDir, "install-base-dir", defaultInstallerBaseDir,
+		"Base directory under which the per-release-environment install directory is created")
+	cmd.Flags().StringVar(&releaseEnvironment, "release-environment", defaultInstallerReleaseEnvironment,
+		"Release environment the installer targets (e.g. `production`, `staging`)")
+
+	// Launcher pass-through flags (matching `generate launcher`, except
+	// `--data-dir` which is deliberately not exposed - see the variable
+	// declaration above).
+	cmd.Flags().StringVarP(&engine, "container-engine", "e", defaultLauncherEngine,
+		"Container engine to bake into the inlined launcher (`podman` or `docker`)")
+	cmd.Flags().StringVarP(&image, "image", "i", defaultLauncherImage,
+		"Container image reference to bake into the inlined launcher")
+	cmd.Flags().StringVarP(&hostKubeconfig, "kubeconfig", "k", defaultLauncherKubeconfig,
+		"Host kubeconfig file to mount into the container")
+	cmd.Flags().BoolVar(&noInteractive, "no-interactive", false,
+		"Bake `--interactive` off as the default in the inlined launcher")
+	cmd.Flags().BoolVar(&noTTY, "no-tty", false,
+		"Bake `--tty` off as the default in the inlined launcher")
+
+	return cmd
+}
+
+// execInstaller renders the installer script template (with the launcher
+// script inlined) and writes the result to the supplied writer.
+//
+// Build-time metadata (current time, Ironbark version, commit, build time)
+// is populated automatically; callers only need to supply the
+// user-configurable installer fields and the launcher pass-through data.
+func execInstaller(out io.Writer, data installerTemplateData, launcherData launcherTemplateData) error {
+	data.InstallBaseDir = strings.TrimSpace(data.InstallBaseDir)
+	data.ReleaseEnvironment = strings.TrimSpace(data.ReleaseEnvironment)
+
+	if data.InstallBaseDir == "" {
+		return fmt.Errorf("install-base-dir must not be empty")
+	}
+	if !strings.HasPrefix(data.InstallBaseDir, "/") {
+		return fmt.Errorf("install-base-dir must be an absolute path, got %q", data.InstallBaseDir)
+	}
+	if data.ReleaseEnvironment == "" {
+		return fmt.Errorf("release-environment must not be empty")
+	}
+
+	data.InstallDir = filepath.Join(data.InstallBaseDir, data.ReleaseEnvironment)
+
+	// Force the inlined launcher's host data directory to match the
+	// data directory the installer creates on the host (and ignore any
+	// caller-supplied value). This keeps the directories created by the
+	// installer in lockstep with those mounted by the launcher.
+	launcherData.HostDataDir = filepath.Join(data.InstallDir, "data")
+
+	// Render the launcher so it can be inlined into the installer
+	// template's heredoc. Use a strings.Builder as the sink so we can
+	// capture the rendered output without writing to disk.
+	var launcherBuf strings.Builder
+	if err := execLauncher(&launcherBuf, launcherData); err != nil {
+		return fmt.Errorf("could not render inlined launcher: %w", err)
+	}
+	data.LauncherScript = launcherBuf.String()
+	data.GeneratedAt = time.Now().UTC().Format(time.RFC3339)
+	data.IronbarkVersion = version.GetVersion()
+	data.IronbarkCommit = version.GetCommit()
+	data.IronbarkBuildTime = version.GetBuildTime()
+
+	tmpl, err := resources.LoadTemplate(installerTemplateFile)
+	if err != nil {
+		return fmt.Errorf("could not load installer template: %w", err)
+	}
+
+	if err := tmpl.Execute(out, data); err != nil {
+		return fmt.Errorf("could not render installer template: %w", err)
 	}
 
 	return nil

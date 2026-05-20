@@ -86,29 +86,97 @@ Zarf Secrets Sync:: Ensures Zarf registry/repo credentials are available in all 
 
 If the above are not met, refer to <<Bootstrapping an Environment>>.
 
-=== Steps
+The remainder of this guide assumes the following three shell variables are exported in your current session.
+Set them once before working through any of the install or operational sections below; all subsequent bash snippets in this README reference them by name rather than re-stating the literal paths.
+
+[source,bash]
+----
+# Base directory beneath which the per-release-environment Ironbark
+# install trees live. This is the canonical brightSPARK Labs install
+# root and does not normally need to change.
+export IRONBARK_INSTALL_BASE_DIR="/opt/brightsparklabs/ironbark"
+
+# Release environment this shell session targets (e.g. `production`,
+# `staging`). Override per session to operate against a different
+# environment without touching siblings.
+export IRONBARK_RELEASE_ENVIRONMENT="production"
+
+# Per-release-environment install directory derived from the two
+# variables above. Do not override this directly - set
+# `IRONBARK_INSTALL_BASE_DIR` and/or `IRONBARK_RELEASE_ENVIRONMENT`
+# instead so the two stay in sync.
+export IRONBARK_INSTALL_DIR="${IRONBARK_INSTALL_BASE_DIR}/${IRONBARK_RELEASE_ENVIRONMENT}"
+----
+
+=== Easy Install (recommended)
+
+For a one-step install, use `generate installer` to emit a self-contained bash installer.
+When piped through `bash`, the installer:
+
+. Creates the per-release-environment install directory tree under `/opt/brightsparklabs/ironbark/<release-environment>/`, including the subdirectories:
+.. `bin/`
+.. `data/zarf/init/`
+.. `data/repos/`
+. Drops a versioned launcher script into `<install-dir>/bin/` and points a generic `bin/ironbark` symlink at it.
+. Restores ownership of the install tree to the invoking user (`SUDO_USER` falling back to `USER`).
+. If `setfacl` is available, applies recursive default ACLs on the install base directory so new files created beneath it inherit the right permissions.
+
+[source,bash]
+----
+# Generate the installer (targeting the release environment specified in
+# `${IRONBARK_RELEASE_ENVIRONMENT}`) and pipe it through bash. `sudo` is
+# required to write under `${IRONBARK_INSTALL_BASE_DIR}`; ownership of
+# the tree is reverted to the invoking user automatically.
+podman run --rm brightsparklabs/ironbark generate installer \
+    --install-base-dir "${IRONBARK_INSTALL_BASE_DIR}" \
+    --release-environment "${IRONBARK_RELEASE_ENVIRONMENT}" \
+  | sudo bash
+
+# Add the launcher to your $PATH (or run it directly):
+export PATH="${IRONBARK_INSTALL_DIR}/bin:${PATH}"
+----
+
+Available options for `ironbark generate installer`:
+
+[horizontal]
+`--install-base-dir`:: Base directory under which the per-release-environment install directory is created. Default: `/opt/brightsparklabs/ironbark`.
+`--release-environment`:: Release environment the installer targets (e.g. `production`, `staging`). Default: `production`.
+
+All flags accepted by `ironbark generate launcher` (`--container-engine`, `--image`, `--kubeconfig`, `--no-interactive`, `--no-tty`) are also accepted by `generate installer` and are baked into the inlined launcher.
+
+If you would rather generate and install the launcher manually, follow <<Manual Install>> below instead.
+
+=== Manual Install
 
 Generate a launcher script using the Ironbark container.
 The launcher wraps the underlying container engine invocation so you can run `ironbark` directly:
 
 [source,bash]
 ----
-# Pre-create the canonical Ironbark install root and hand ownership to the
+# Pre-create the canonical Ironbark install tree and hand ownership to the
 # current user so subsequent `ironbark` invocations do not require `sudo`.
-sudo mkdir -p /opt/brightsparklabs/ironbark/{bin,data}
-sudo chown -R "$(id -u):$(id -g)" /opt/brightsparklabs/ironbark
+sudo mkdir -p "${IRONBARK_INSTALL_DIR}"/{bin,data/zarf/init,data/repos}
+sudo chown -R "$(id -u):$(id -g)" "${IRONBARK_INSTALL_DIR}"
 
-# Generate a launcher script (defaults to Podman) and install it onto your
-# $PATH at the canonical location. The default `--data-dir` already points
-# at `/opt/brightsparklabs/ironbark/data` so no flag is required.
+# If `setfacl` is available, apply recursive default ACLs on the
+# per-environment install dir so any new files created beneath it
+# inherit your user/group with read/write permissions, and execute
+# permission for directories (and files that are already executable).
+if command -v setfacl >/dev/null 2>&1; then
+  sudo setfacl -R -d -m "u:$(id -un):rwX,g:$(id -gn):rwX" "${IRONBARK_INSTALL_DIR}"
+  sudo setfacl -R    -m "u:$(id -un):rwX,g:$(id -gn):rwX" "${IRONBARK_INSTALL_DIR}"
+fi
+
+# Generate a launcher script (defaults to Podman) and install it onto
+# your $PATH at the canonical location.
 podman run --rm brightsparklabs/ironbark generate launcher \
-  > /opt/brightsparklabs/ironbark/bin/ironbark
-chmod +x /opt/brightsparklabs/ironbark/bin/ironbark
+  > "${IRONBARK_INSTALL_DIR}/bin/ironbark"
+chmod +x "${IRONBARK_INSTALL_DIR}/bin/ironbark"
 
 # Make sure the launcher is on your PATH for the rest of this guide. Add this
 # line to your shell profile (e.g. `~/.bashrc`, `~/.zshrc`) to make it
 # permanent.
-export PATH="/opt/brightsparklabs/ironbark/bin:${PATH}"
+export PATH="${IRONBARK_INSTALL_DIR}/bin:${PATH}"
 ----
 
 Available options for `ironbark generate launcher`:
@@ -116,7 +184,7 @@ Available options for `ironbark generate launcher`:
 [horizontal]
 `--container-engine`:: Container engine to use (`podman` or `docker`). Default: `podman`.
 `--image`:: Container image reference for Ironbark. Default: `brightsparklabs/ironbark:latest`.
-`--data-dir`:: Host directory mounted into the container as the Ironbark data directory. Default: `/opt/brightsparklabs/ironbark/data` (the canonical install location).
+`--data-dir`:: Host directory mounted into the container as the Ironbark data directory. Default: `/opt/brightsparklabs/ironbark/production/data` (the canonical install location).
 `--kubeconfig`:: Host kubeconfig file mounted into the container. Default: `${HOME}/.kube/config`.
 `--no-interactive`:: Bake `IRONBARK_SCRIPT_NO_INTERACTIVE` on as the default in the generated script (useful for CI). Default: `false`.
 `--no-tty`:: Bake `IRONBARK_SCRIPT_NO_TTY` on as the default in the generated script (useful when piping or in CI). Default: `false`.
@@ -153,8 +221,8 @@ To generate a launcher targeting Docker instead of Podman (substitute `podman` f
 ----
 docker run --rm brightsparklabs/ironbark generate launcher \
   --container-engine docker \
-  > /opt/brightsparklabs/ironbark/bin/ironbark
-chmod +x /opt/brightsparklabs/ironbark/bin/ironbark
+  > "${IRONBARK_INSTALL_DIR}/bin/ironbark"
+chmod +x "${IRONBARK_INSTALL_DIR}/bin/ironbark"
 ----
 
 === Bootstrapping an Environment
@@ -182,7 +250,7 @@ chmod +x extract-zarf.sh
 ./extract-zarf.sh
 
 # Ensure the current user can run initialise the cluster.
-sudo chown -R "$(id -u):$(id -g)" /opt/brightsparklabs/ironbark/data/zarf/init
+sudo chown -R "$(id -u):$(id -g)" "${IRONBARK_INSTALL_DIR}/data/zarf/init"
 ----
 
 Available options for `ironbark generate zarf-bootstrap`:
@@ -191,7 +259,7 @@ Available options for `ironbark generate zarf-bootstrap`:
 `--container-engine`, `-e`:: Container engine to use (`podman` or `docker`). Default: `podman`.
 `--image`, `-i`:: Container image reference for Ironbark. Default: `brightsparklabs/ironbark:latest`.
 `--source-path`, `-s`:: Path inside the container containing the Zarf CLI and init package. Default: `/app/resources/zarf/init`.
-`--output-dir`, `-o`:: Host directory which will receive the extracted Zarf assets. Default: `/opt/brightsparklabs/ironbark/data/zarf/init` (NOTE: This is inside the launcher's default data directory so no extra mount is required).
+`--output-dir`, `-o`:: Host directory which will receive the extracted Zarf assets. Default: `/opt/brightsparklabs/ironbark/production/data/zarf/init` (NOTE: This is inside the launcher's default data directory so no extra mount is required).
 
 *The generated script:*
 
@@ -228,7 +296,7 @@ Bootstrap the environment by running the script:
 [source,bash]
 ----
 # Bootstrap the host (installs the Zarf in-cluster components).
-cd /opt/brightsparklabs/ironbark/data/zarf/init
+cd "${IRONBARK_INSTALL_DIR}/data/zarf/init"
 ./zarf init --components=git-server --confirm
 ----
 
@@ -251,7 +319,7 @@ Bootstrap the environment by running the script:
 sudo -i
 
 # Bootstrap the host (installs K3s and the Zarf in-cluster components).
-cd /opt/brightsparklabs/ironbark/data/zarf/init
+cd "${IRONBARK_INSTALL_DIR}/data/zarf/init"
 ./zarf init --confirm
 ----
 
@@ -262,10 +330,10 @@ Generate a matching rules file with:
 
 [source,bash]
 ----
-# Defaults assume `/opt/brightsparklabs/ironbark/data/zarf/init/zarf` and
+# Defaults assume `/opt/brightsparklabs/ironbark/production/data/zarf/init/zarf` and
 # `/usr/local/bin/k3s`.
 ironbark generate fapolicy-rules \
-  --zarf-path /opt/brightsparklabs/ironbark/data/zarf/init/zarf \
+  --zarf-path "${IRONBARK_INSTALL_DIR}/data/zarf/init/zarf" \
   --k3s-path /usr/local/bin/k3s \
   | sudo tee /etc/fapolicyd/rules.d/30-ironbark.rules
 sudo systemctl restart fapolicyd
@@ -274,7 +342,7 @@ sudo systemctl restart fapolicyd
 Available options for `ironbark generate fapolicy-rules`:
 
 [horizontal]
-`--zarf-path`:: Absolute host path of the extracted Zarf CLI. Default: `/opt/brightsparklabs/ironbark/data/zarf/init/zarf` (matches the default `--output-dir` of `generate zarf-bootstrap`).
+`--zarf-path`:: Absolute host path of the extracted Zarf CLI. Default: `/opt/brightsparklabs/ironbark/production/data/zarf/init/zarf` (matches the default `--output-dir` of `generate zarf-bootstrap`).
 `--k3s-path`:: Absolute host path of the installed K3s CLI. Default: `/usr/local/bin/k3s`.
 
 The generated rules file allows execution and reading of each supplied binary.
@@ -388,7 +456,7 @@ Default: `/mnt/data`
 |Host directory bind-mounted into the container as the application data directory.
 Set automatically by the generated launcher script.
 
-Default: `/opt/brightsparklabs/ironbark/data`
+Default: `/opt/brightsparklabs/ironbark/production/data`
 
 |`IRONBARK_SCRIPT_CONTAINER_ENGINE`
 |Container engine used by the generated launcher script (`podman` or `docker`).
