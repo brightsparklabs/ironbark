@@ -89,19 +89,40 @@ FROM golang:${GOLANG_VERSION} AS builder-golang
 ARG APP_VERSION=dev
 ARG VCS_REF=unknown
 ARG BUILD_TIME_UTC=unknown
+ARG BUILD_DATE=unknown
+
+# The Go binary is built via the repo-root `Makefile` (rather than calling
+# `go build` directly) so there is a single canonical build path shared by
+# local development and the container image. This guarantees that any
+# Makefile-only build steps (e.g. embedding `README.adoc` into the binary
+# for the `ironbark docs` command) are exercised here as well.
+RUN apt-get update \
+      && apt-get install -y --no-install-recommends make \
+      && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /build
-COPY src/go.mod src/go.sum ./
-RUN go mod download
-COPY ./src/ .
-# Inject build-time metadata into the binary via `-ldflags -X`.
-# Keep the linker targets in sync with `internal/version/version.go`.
-RUN CGO_ENABLED=0 GOOS=linux go build \
-      -ldflags " \
-        -X brightsparklabs.com/ironbark/internal/version.Version=${APP_VERSION} \
-        -X brightsparklabs.com/ironbark/internal/version.Commit=${VCS_REF} \
-        -X brightsparklabs.com/ironbark/internal/version.BuildTime=${BUILD_TIME_UTC} \
-      " \
-      -o ironbark .
+
+# Pre-fetch Go module dependencies in their own layer so they are cached
+# independently of the rest of the source tree.
+COPY src/go.mod src/go.sum ./src/
+RUN cd src && go mod download
+
+# Copy the remaining build inputs the Makefile expects. The container
+# build context intentionally excludes `.git`, so the Makefile's
+# `git describe` / `git rev-parse` invocations will fall back to their
+# `|| echo ...` defaults. We therefore pass the real build metadata
+# (resolved from `git` on the host by the Makefile's `oci-image` target)
+# in as build args and forward them to `make` as variable overrides —
+# command-line assignments take precedence over the Makefile's `:=`
+# assignments, so the ldflags receive the correct values.
+COPY Makefile README.adoc ./
+COPY src/ ./src/
+
+RUN make build \
+      APP_VERSION=${APP_VERSION} \
+      VCS_REF=${VCS_REF} \
+      BUILD_TIME_UTC=${BUILD_TIME_UTC} \
+      BUILD_DATE=${BUILD_DATE}
 
 # ------------------------------------------------------------------------------
 # FINAL STAGE
@@ -122,7 +143,7 @@ ENV \
 
 WORKDIR /app
 COPY --from=builder-tooling /build/ .
-COPY --from=builder-golang /build/ironbark bin/
+COPY --from=builder-golang /build/build/bin/ironbark bin/
 
 RUN ls -lR /app
 ENTRYPOINT ["/app/bin/ironbark"]
