@@ -1,6 +1,6 @@
 module brightsparklabs.com/ironbark
 
-go 1.25.5
+go 1.26.0
 
 require (
 	code.gitea.io/sdk/gitea v0.22.1
