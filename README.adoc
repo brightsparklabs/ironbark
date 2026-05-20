@@ -422,6 +422,32 @@ ironbark argo push
 
 . ArgoCD will automatically sync the changes and deploy your applications.
 
+=== Invoking Bundled Tools
+
+The Ironbark container image bundles a number of CLI tools under `/app/bin/` so they are available on disconnected/airgapped hosts without separate installation.
+Invoke them via `ironbark exec`:
+
+[source,bash]
+----
+# List the available tools (auto-discovered at runtime; a shell
+# binary is also auto-registered if the image ships one).
+ironbark exec --help
+
+# Forward all remaining args verbatim to the underlying tool.
+ironbark exec <tool> [args...]
+
+# Drop into an interactive shell inside the container - useful for
+# one-off troubleshooting or ad-hoc commands that are not exposed
+# elsewhere. The exact subcommand name depends on what the image
+# ships (run `ironbark exec --help` to see).
+ironbark exec <shell>
+----
+
+Signal handling, exit codes and stdio behave exactly as if you had invoked the tool directly: under the hood `ironbark exec` `execve`'s into the requested binary.
+
+The remaining sections of this guide use tool names directly (e.g. `kubectl`, `zarf`).
+On hosts where those tools are not installed locally, replace each invocation with `ironbark exec <tool>` to use the version bundled in the image.
+
 === Accessing ArgoCD
 
 [source,bash]

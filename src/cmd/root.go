@@ -124,6 +124,7 @@ func registerSubcommands() {
 		rootCmd.AddCommand(newVersionCmd())
 		rootCmd.AddCommand(newDebugCmd())
 		rootCmd.AddCommand(newDocsCmd())
+		rootCmd.AddCommand(newExecCmd())
 	}
 }
 
