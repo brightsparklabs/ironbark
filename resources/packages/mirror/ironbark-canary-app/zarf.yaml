@@ -24,7 +24,9 @@
 # NOTE: The `images` block can be regenerated via:
 #       `zarf -l debug prepare find-images`.
 #
-#       Ensure the OCI registry chart image is manually added to the `images` block.
+# The chart itself is mirrored to the cluster's internal OCI registry
+# automatically by Ironbark (see AFC-32 and `src/internal/zarf/charts.go`);
+# it does NOT need to be listed under `images` manually.
 
 kind: ZarfPackageConfig
 metadata:
@@ -49,6 +51,3 @@ components:
       # Test image used by the chart's `helm test` hook. Mirrored so that
       # `helm test` works in disconnected environments.
       - ghcr.io/cowboysysop/pytest:1.2.0
-
-      # IMPORTANT: This line added manually to ensure chart is in OCI registry for ArgoCD.
-      - ghcr.io/cowboysysop/charts/whoami:6.0.0
