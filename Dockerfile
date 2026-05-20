@@ -4,13 +4,18 @@
  #
  # Created by brightSPARK Labs
  # www.brightsparklabs.com
- ##
+##
 
 # ------------------------------------------------------------------------------
 # CONSTANTS
 # ------------------------------------------------------------------------------
 
-ARG ARCH=amd64
+# `TARGETARCH` is automatically set by BuildKit (e.g. `amd64`, `arm64`) based
+# on the target platform (`--platform`). Default to it so cross-builds work
+# without an explicit `--build-arg ARCH=...`, but allow overriding for
+# legacy invocations.
+ARG TARGETARCH
+ARG ARCH=${TARGETARCH:-amd64}
 ARG UBUNTU_IMAGE=ubuntu:24.04
 ARG GOLANG_VERSION=1.26.3
 
@@ -28,22 +33,34 @@ ARG ARCH
 ARG KUBECTL_VERSION
 ARG ZARF_VERSION
 
-RUN \
-  apt -y update \
-  && apt -y install \
-    # CAs must be up to date since `zarf package create` downloads from https sites.
-    ca-certificates
+# Use bash (not the default `/bin/sh` → `dash` on Debian/Ubuntu) with
+# strict error handling for every `RUN` in this stage. This is the
+# Docker-recommended way to enable `set -euo pipefail` semantics
+# globally, and avoids the `dash: Illegal option -o pipefail` error
+# that occurs if `set -o pipefail` is used in a default `RUN`.
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
+
+# `ca-certificates` is required for HTTPS downloads from `dl.k8s.io` and
+# `github.com`. `curl` is preferred over `ADD <url>` because `ADD <url>` is
+# discouraged by Docker's best-practices guide (no retry, no checksum, no
+# extraction, extra layer overhead).
+RUN apt-get update \
+      && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl
 
 WORKDIR /build/bin
-ADD \
-  https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl \
-  kubectl
-RUN chmod +x kubectl
+# Download `kubectl` for the target architecture. The `--retry`/`--fail`
+# flags give us proper error handling that `ADD <url>` does not.
+RUN curl --fail --silent --show-error --location --retry 3 \
+      --output kubectl \
+      "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl" \
+      && chmod +x kubectl
 
-ADD \
-  https://github.com/zarf-dev/zarf/releases/download/${ZARF_VERSION}/zarf_${ZARF_VERSION}_Linux_amd64 \
-  zarf
-RUN chmod +x zarf
+RUN curl --fail --silent --show-error --location --retry 3 \
+      --output zarf \
+      "https://github.com/zarf-dev/zarf/releases/download/${ZARF_VERSION}/zarf_${ZARF_VERSION}_Linux_${ARCH}" \
+      && chmod +x zarf
 
 # Make a self-contained directory which can be used to do `zarf init`.
 # This allows a single directory to be copied onto host if installing k3s.
@@ -65,21 +82,21 @@ RUN chmod +x zarf
 WORKDIR /build/resources/zarf/init
 # Hard link to save space.
 RUN ln /build/bin/zarf
-# Explicitly `ADD` to allow better Docker caching (rather than `zarf tools download-init`).
-ADD \
-  # URL from: https://docs.zarf.dev/best-practices/upgrading-zarf/
-  https://github.com/zarf-dev/zarf/releases/download/${ZARF_VERSION}/zarf-init-${ARCH}-${ZARF_VERSION}.tar.zst \
-  zarf-init-${ARCH}-${ZARF_VERSION}.tar.zst
+# URL from: https://docs.zarf.dev/best-practices/upgrading-zarf/
+RUN curl --fail --silent --show-error --location --retry 3 \
+      --output "zarf-init-${ARCH}-${ZARF_VERSION}.tar.zst" \
+      "https://github.com/zarf-dev/zarf/releases/download/${ZARF_VERSION}/zarf-init-${ARCH}-${ZARF_VERSION}.tar.zst"
 
-# Build each package.
+# Build each package. The stage-level `SHELL` directive above runs every
+# `RUN` under `bash -euo pipefail`, so any package-create failure aborts
+# the build rather than silently producing a partial image.
 WORKDIR /src/zarf/packages
 COPY resources/packages/ .
-RUN \
-  for package_type in *; do \
-    for package_dir in ${package_type}/*; do \
-      /build/bin/zarf package create "${package_dir}" -o /build/resources/packages/${package_type}/; \
-    done \
-  done
+RUN for package_type in *; do \
+      for package_dir in "${package_type}"/*; do \
+        /build/bin/zarf package create "${package_dir}" -o "/build/resources/packages/${package_type}/"; \
+      done; \
+    done
 
 # ------------------------------------------------------------------------------
 # BUILDER STAGE - GOLANG
@@ -91,14 +108,19 @@ ARG VCS_REF=unknown
 ARG BUILD_TIME_UTC=unknown
 ARG BUILD_DATE=unknown
 
+# Use bash with strict error handling for every `RUN` in this stage —
+# same rationale as `builder-tooling`. Defensive: nothing in this stage
+# currently uses pipes, but this guards against future additions
+# silently swallowing errors due to `dash` being the default `sh`.
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
+
 # The Go binary is built via the repo-root `Makefile` (rather than calling
 # `go build` directly) so there is a single canonical build path shared by
 # local development and the container image. This guarantees that any
 # Makefile-only build steps (e.g. embedding `README.adoc` into the binary
 # for the `ironbark docs` command) are exercised here as well.
 RUN apt-get update \
-      && apt-get install -y --no-install-recommends make \
-      && rm -rf /var/lib/apt/lists/*
+      && apt-get install -y --no-install-recommends make
 
 WORKDIR /build
 
@@ -128,29 +150,50 @@ RUN make build \
 # FINAL STAGE
 # ------------------------------------------------------------------------------
 
-FROM  ${UBUNTU_IMAGE}
+# The final image is `scratch` to keep it minimal — the Go binary is
+# statically linked (`CGO_ENABLED=0`) and the bundled `kubectl`/`zarf`
+# binaries are likewise static, so no OS is required at runtime. Note
+# that this means there is no shell, no package manager, and no
+# coreutils inside the image. If you need to debug interactively during
+# development, swap to the Ubuntu base by commenting out the `scratch`
+# line and uncommenting the `${UBUNTU_IMAGE}` line below.
+FROM scratch
+# FROM ${UBUNTU_IMAGE}
 
 ARG IRONBARK_DATA_DIR=/mnt/data
 ARG IRONBARK_INTERNAL_PACKAGES_DIR=/app/resources/packages
+ARG APP_VERSION=latest
+ARG BUILD_DATE
+ARG VCS_REF
+
 # `IRONBARK_IN_CONTAINER` is baked into the image so any process started from
 # this image (whether via the launcher script or an ad-hoc `podman run`) can
 # unambiguously detect that it is executing inside the Ironbark container.
+#
+# `PATH` is set explicitly (rather than prepending to an inherited `${PATH}`)
+# because the `scratch` base provides no parent environment. Note that
+# `PATH` is still required even though `scratch` ships no shell — it is
+# consumed by Go's `os/exec.LookPath` (used throughout the `ironbark`
+# binary to locate the bundled `kubectl` and `zarf` binaries under
+# `/app/bin`, and by `ironbark exec` to discover any bundled tools by
+# name rather than absolute path). The conventional Linux defaults are
+# listed after `/app/bin` to keep behaviour predictable if the image is
+# ever rebased on a distro that ships those directories.
 ENV \
   IRONBARK_DATA_DIR=${IRONBARK_DATA_DIR} \
   IRONBARK_INTERNAL_PACKAGES_DIR=${IRONBARK_INTERNAL_PACKAGES_DIR} \
   IRONBARK_IN_CONTAINER=true \
-  PATH="/app/bin:${PATH}"
+  PATH="/app/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+  META_BUILD_DATE=${BUILD_DATE} \
+  META_VCS_REF=${VCS_REF} \
+  APP_VERSION=${APP_VERSION}
 
 WORKDIR /app
 COPY --from=builder-tooling /build/ .
 COPY --from=builder-golang /build/build/bin/ironbark bin/
 
-RUN ls -lR /app
 ENTRYPOINT ["/app/bin/ironbark"]
 
-ARG APP_VERSION=latest
-ARG BUILD_DATE
-ARG VCS_REF
 LABEL org.label-schema.name="ironbark" \
       org.label-schema.description="Kubernetes management using the brightSPARK Labs opinionated deployment pattern" \
       org.opencontainers.image.authors="brightSPARK Labs <enquire@brightsparklabs.com>" \
@@ -159,8 +202,3 @@ LABEL org.label-schema.name="ironbark" \
       org.label-schema.vcs-url="https://github.com/brightsparklabs/ironbark" \
       org.label-schema.vcs-ref=${VCS_REF} \
       org.label-schema.build-date=${BUILD_DATE}
-ENV \
-  META_BUILD_DATE=${BUILD_DATE} \
-  META_VCS_REF=${VCS_REF} \
-  APP_VERSION=${APP_VERSION}
-RUN echo ${APP_VERSION} > VERSION
