@@ -27,10 +27,6 @@ e.g.
 
   ironbark docs | bat -l asciidoc
 `,
-		// Suppress cobra's automatic usage/error reprint as `Execute` already
-		// surfaces errors via panic.
-		SilenceUsage:  true,
-		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return execDocs(os.Stdout)
 		},

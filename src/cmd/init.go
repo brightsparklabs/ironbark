@@ -45,31 +45,34 @@ func newInitCmd() *cobra.Command {
 }
 
 func newInitAllCmd() *cobra.Command {
-	cmd := &cobra.Command{
+	return &cobra.Command{
 		Use:   "all",
 		Short: "Initialises all Ironbark components",
-		Run:   execInitAll,
+		RunE:  execInitAll,
 	}
-
-	return cmd
 }
 
-func execInitAll(cmd *cobra.Command, args []string) {
+// execInitAll runs every Ironbark initialisation step in order.
+// Failures are surfaced as user errors via the top-level handler in
+// `Execute`.
+func execInitAll(cmd *cobra.Command, args []string) error {
 	slog.Info("Initialising Ironbark components ...")
 
-	err := initPackages()
-	exitOnError(err, "Could not initialise Ironbark packages")
-
-	err = initArgoRepoSecrets(cmd.Context())
-	exitOnError(err, "Could not add ArgoCD repository secrets")
-
-	err = initArgoAppOfAppsRepo(cmd.Context())
-	exitOnError(err, "Could not initialise ArgoCD App of Apps repo")
-
-	err = initArgoApp()
-	exitOnError(err, "Could not apply ArgoCD App of Apps definition")
+	if err := initPackages(); err != nil {
+		return WrapUserError(err, "Could not initialise Ironbark packages")
+	}
+	if err := initArgoRepoSecrets(cmd.Context()); err != nil {
+		return WrapUserError(err, "Could not add ArgoCD repository secrets")
+	}
+	if err := initArgoAppOfAppsRepo(cmd.Context()); err != nil {
+		return WrapUserError(err, "Could not initialise ArgoCD App of Apps repo")
+	}
+	if err := initArgoApp(); err != nil {
+		return WrapUserError(err, "Could not apply ArgoCD App of Apps definition")
+	}
 
 	slog.Info("Successfully initialised all Ironbark components")
+	return nil
 }
 
 // -----------------------------------------------------------------------------
@@ -77,20 +80,23 @@ func execInitAll(cmd *cobra.Command, args []string) {
 // -----------------------------------------------------------------------------
 
 func newInitPackagesCmd() *cobra.Command {
-	cmd := &cobra.Command{
+	return &cobra.Command{
 		Use:   "packages",
 		Short: "Deploys and mirrors Ironbark packages",
-		Run:   execInitPackages,
+		RunE:  execInitPackages,
 	}
-
-	return cmd
 }
 
-func execInitPackages(cmd *cobra.Command, args []string) {
+// execInitPackages deploys and mirrors all Ironbark Zarf packages.
+// Failures are surfaced as user errors via the top-level handler in
+// `Execute`.
+func execInitPackages(cmd *cobra.Command, args []string) error {
 	slog.Info("Initialising packages ...")
-	err := initPackages()
-	exitOnError(err, "Could not initialise packages")
+	if err := initPackages(); err != nil {
+		return WrapUserError(err, "Could not initialise packages")
+	}
 	slog.Info("Successfully initialised packages")
+	return nil
 }
 
 func initPackages() error {
@@ -118,20 +124,23 @@ func initPackages() error {
 // -----------------------------------------------------------------------------
 
 func newInitArgoSecretsCmd() *cobra.Command {
-	cmd := &cobra.Command{
+	return &cobra.Command{
 		Use:   "argocd-repo-secrets",
 		Short: "Initialises Ironbark ArgoCD repository secrets",
-		Run:   execInitArgoSecrets,
+		RunE:  execInitArgoSecrets,
 	}
-
-	return cmd
 }
 
-func execInitArgoSecrets(cmd *cobra.Command, args []string) {
+// execInitArgoSecrets creates the Kubernetes Secrets ArgoCD needs to
+// authenticate against the internal Git server. Failures are surfaced
+// as user errors via the top-level handler in `Execute`.
+func execInitArgoSecrets(cmd *cobra.Command, args []string) error {
 	slog.Info("Adding ArgoCD repository secrets ...")
-	err := initArgoRepoSecrets(cmd.Context())
-	exitOnError(err, "Could not add ArgoCD repository secrets")
+	if err := initArgoRepoSecrets(cmd.Context()); err != nil {
+		return WrapUserError(err, "Could not add ArgoCD repository secrets")
+	}
 	slog.Info("Successfully added ArgoCD repository secrets")
+	return nil
 }
 
 func initArgoRepoSecrets(ctx context.Context) error {
@@ -218,19 +227,24 @@ func initArgoRepoSecrets(ctx context.Context) error {
 // -----------------------------------------------------------------------------
 
 func newInitArgoAppOfAppsRepoCmd() *cobra.Command {
-	cmd := &cobra.Command{
+	return &cobra.Command{
 		Use:   "argocd-app-of-apps-repo",
 		Short: "Initialises the ArgoCD App of Apps repo on the internal Git server",
-		Run:   execInitArgoAppOfAppsRepo,
+		RunE:  execInitArgoAppOfAppsRepo,
 	}
-	return cmd
 }
 
-func execInitArgoAppOfAppsRepo(cmd *cobra.Command, args []string) {
+// execInitArgoAppOfAppsRepo creates the ArgoCD App of Apps repository
+// on the internal Git server and pushes the initial templates to it.
+// Failures are surfaced as user errors via the top-level handler in
+// `Execute`.
+func execInitArgoAppOfAppsRepo(cmd *cobra.Command, args []string) error {
 	slog.Info("Initialising ArgoCD App of Apps repo ...")
-	err := initArgoAppOfAppsRepo(cmd.Context())
-	exitOnError(err, "Could not initialise ArgoCD App of Apps repo")
+	if err := initArgoAppOfAppsRepo(cmd.Context()); err != nil {
+		return WrapUserError(err, "Could not initialise ArgoCD App of Apps repo")
+	}
 	slog.Info("Successfully initialised ArgoCD App of Apps repo")
+	return nil
 }
 
 // initArgoExec initialises the local ArgoCD app of apps repo and pushes it to the internal Git server.
@@ -245,9 +259,7 @@ func initArgoAppOfAppsRepo(ctx context.Context) error {
 	slog.Info("Successfully created repo", "url", repo.HTMLURL)
 
 	argoCDRepoDir := settings.ArgoCDRepoDir()
-	_, err = createLocalArgoCDRepo(argoCDRepoDir)
-	exitOnError(err, "")
-	if err != nil {
+	if _, err = createLocalArgoCDRepo(argoCDRepoDir); err != nil {
 		return fmt.Errorf("could not create local ArgoCD repo: %w", err)
 	}
 
@@ -303,20 +315,24 @@ func copyAppOfAppResources(dir string) error {
 // -----------------------------------------------------------------------------
 
 func newInitArgoAppCmd() *cobra.Command {
-	cmd := &cobra.Command{
+	return &cobra.Command{
 		Use:   "argocd-app",
 		Short: "Deploys ArgoCD app of apps to start syncing state",
-		Run:   execInitArgoApp,
+		RunE:  execInitArgoApp,
 	}
-
-	return cmd
 }
 
-func execInitArgoApp(cmd *cobra.Command, args []string) {
+// execInitArgoApp applies the ArgoCD App of Apps definition that
+// makes ArgoCD start reconciling the cluster against the managed
+// repository. Failures are surfaced as user errors via the top-level
+// handler in `Execute`.
+func execInitArgoApp(cmd *cobra.Command, args []string) error {
 	slog.Info("Deploying and starting ArgoCD app of apps ...")
-	err := initArgoApp()
-	exitOnError(err, "Could not apply ArgoCD App of Apps definition")
+	if err := initArgoApp(); err != nil {
+		return WrapUserError(err, "Could not apply ArgoCD App of Apps definition")
+	}
 	slog.Info("Successfully deployed ArgoCD app of apps")
+	return nil
 }
 
 func initArgoApp() error {

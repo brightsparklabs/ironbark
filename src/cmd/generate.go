@@ -340,10 +340,6 @@ Example:
   ./ironbark init all                 # all args forwarded to the container
   ./ironbark --no-tty -- init all     # disable --tty, then forward 'init all'
 `,
-		// Suppress cobra's automatic usage/error reprint as `Execute` already
-		// surfaces errors via panic.
-		SilenceUsage:  true,
-		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return execLauncher(os.Stdout, launcherTemplateData{
 				Engine:         engine,
@@ -381,7 +377,7 @@ Example:
 func execLauncher(out io.Writer, data launcherTemplateData) error {
 	normalisedEngine := strings.ToLower(strings.TrimSpace(data.Engine))
 	if _, ok := supportedLauncherEngines[normalisedEngine]; !ok {
-		return fmt.Errorf("unsupported container engine %q (must be one of: podman, docker)", data.Engine)
+		return NewUserError("unsupported container engine %q (must be one of: podman, docker)", data.Engine)
 	}
 	data.Engine = normalisedEngine
 	data.GeneratedAt = time.Now().UTC().Format(time.RFC3339)
@@ -457,10 +453,6 @@ Example:
   cd /opt/brightsparklabs/ironbark/production/data/zarf/init
   sudo ./zarf init
 `,
-		// Suppress cobra's automatic usage/error reprint as `Execute` already
-		// surfaces errors via panic.
-		SilenceUsage:  true,
-		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return execZarfBootstrap(os.Stdout, zarfBootstrapTemplateData{
 				Engine:     engine,
@@ -501,18 +493,18 @@ Example:
 func execZarfBootstrap(out io.Writer, data zarfBootstrapTemplateData) error {
 	normalisedEngine := strings.ToLower(strings.TrimSpace(data.Engine))
 	if _, ok := supportedLauncherEngines[normalisedEngine]; !ok {
-		return fmt.Errorf("unsupported container engine %q (must be one of: podman, docker)", data.Engine)
+		return NewUserError("unsupported container engine %q (must be one of: podman, docker)", data.Engine)
 	}
 	data.Engine = normalisedEngine
 
 	if strings.TrimSpace(data.Image) == "" {
-		return fmt.Errorf("image must not be empty")
+		return NewUserError("image must not be empty")
 	}
 	if strings.TrimSpace(data.SourcePath) == "" {
-		return fmt.Errorf("source-path must not be empty")
+		return NewUserError("source-path must not be empty")
 	}
 	if strings.TrimSpace(data.OutputDir) == "" {
-		return fmt.Errorf("output-dir must not be empty")
+		return NewUserError("output-dir must not be empty")
 	}
 
 	// Verify the Zarf assets are physically present at the configured
@@ -615,10 +607,6 @@ Example:
       | sudo tee /etc/fapolicyd/rules.d/30-ironbark.rules > /dev/null
   sudo systemctl restart fapolicyd
 `,
-		// Suppress cobra's automatic usage/error reprint as `Execute` already
-		// surfaces errors via panic.
-		SilenceUsage:  true,
-		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return execFapolicyRules(os.Stdout, fapolicyRulesTemplateData{
 				ZarfPath: zarfPath,
@@ -646,13 +634,13 @@ func execFapolicyRules(out io.Writer, data fapolicyRulesTemplateData) error {
 	data.K3sPath = strings.TrimSpace(data.K3sPath)
 
 	if data.ZarfPath == "" {
-		return fmt.Errorf("zarf-path must not be empty")
+		return NewUserError("zarf-path must not be empty")
 	}
 	if data.K3sPath == "" {
 		return fmt.Errorf("k3s-path must not be empty")
 	}
 	if !strings.HasPrefix(data.ZarfPath, "/") {
-		return fmt.Errorf("zarf-path must be an absolute path, got %q", data.ZarfPath)
+		return NewUserError("zarf-path must be an absolute path, got %q", data.ZarfPath)
 	}
 	if !strings.HasPrefix(data.K3sPath, "/") {
 		return fmt.Errorf("k3s-path must be an absolute path, got %q", data.K3sPath)
@@ -740,10 +728,6 @@ Example:
   # Or pipe directly into bash:
   ironbark generate installer --release-environment staging | sudo bash
 `,
-		// Suppress cobra's automatic usage/error reprint as `Execute` already
-		// surfaces errors via panic.
-		SilenceUsage:  true,
-		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return execInstaller(os.Stdout, installerTemplateData{
 				InstallBaseDir:     installBaseDir,
@@ -796,13 +780,13 @@ func execInstaller(out io.Writer, data installerTemplateData, launcherData launc
 	data.ReleaseEnvironment = strings.TrimSpace(data.ReleaseEnvironment)
 
 	if data.InstallBaseDir == "" {
-		return fmt.Errorf("install-base-dir must not be empty")
+		return NewUserError("install-base-dir must not be empty")
 	}
 	if !strings.HasPrefix(data.InstallBaseDir, "/") {
-		return fmt.Errorf("install-base-dir must be an absolute path, got %q", data.InstallBaseDir)
+		return NewUserError("install-base-dir must be an absolute path, got %q", data.InstallBaseDir)
 	}
 	if data.ReleaseEnvironment == "" {
-		return fmt.Errorf("release-environment must not be empty")
+		return NewUserError("release-environment must not be empty")
 	}
 
 	data.InstallDir = filepath.Join(data.InstallBaseDir, data.ReleaseEnvironment)

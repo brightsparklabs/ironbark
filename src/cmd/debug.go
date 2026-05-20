@@ -92,10 +92,6 @@ or ` + "`--format yaml`" + ` for machine-readable output.
 Variables marked sensitive (currently none) are rendered with their
 value redacted.
 `,
-		// Suppress cobra's automatic usage/error reprint as `Execute` already
-		// surfaces errors via panic.
-		SilenceUsage:  true,
-		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return execDebugSettings(os.Stdout, settings.ResolveAll(), format, showAll)
 		},
