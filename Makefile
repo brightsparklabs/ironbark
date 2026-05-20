@@ -75,9 +75,18 @@ build: build/bin/ironbark ## Build the application.
 # `go.mod` and `go.sum` (computed dynamically into `BUILD_INPUTS`). When any
 # of these change Make will rebuild the binary; otherwise it is left alone.
 # This avoids the "Nothing to be done" footgun without resorting to `.PHONY`.
-build/bin/ironbark: $(BUILD_INPUTS)
+build/bin/ironbark: $(BUILD_INPUTS) README.adoc
 	mkdir -p build/bin
+	# Drop the repo-root `README.adoc` into the embedded resources
+	# directory so it is picked up by the `//go:embed resources/*`
+	# in `src/resources/resources.go`. The copy is gitignored and is
+	# removed after `go build` so the working tree stays clean. If
+	# `go build` is invoked standalone (without `make`), the README
+	# is simply absent from the embed and a fallback message is
+	# returned by `ironbark docs`.
+	@cp README.adoc src/resources/resources/README.adoc
 	cd src \
+		&& trap 'rm -f resources/resources/README.adoc' EXIT \
 		&& go mod download \
 		&& CGO_ENABLED=0 GOOS=linux go build -ldflags "$(GO_LDFLAGS)" -o ../build/bin/ironbark .
 

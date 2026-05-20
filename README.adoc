@@ -78,6 +78,17 @@ Zarf Secrets Sync:: Ensures Zarf registry/repo credentials are available in all 
 
 == Installation
 
+[TIP]
+--
+This README is embedded into every Ironbark binary at build time.
+It is available in airgapped environments by running:
+
+[source,bash]
+----
+podman run --rm brightsparklabs/ironbark docs
+----
+--
+
 === Prerequisites
 
 * The environment has a working Kubernetes cluster (EKS, K3s, etc.).
@@ -85,6 +96,8 @@ Zarf Secrets Sync:: Ensures Zarf registry/repo credentials are available in all 
 * Zarf has been initialised on the cluster (`zarf init`).
 
 If the above are not met, refer to <<Bootstrapping an Environment>>.
+
+=== Shell Environment
 
 The remainder of this guide assumes the following three shell variables are exported in your current session.
 Set them once before working through any of the install or operational sections below; all subsequent bash snippets in this README reference them by name rather than re-stating the literal paths.

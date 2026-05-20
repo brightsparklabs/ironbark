@@ -29,3 +29,19 @@ func LoadTemplate(file string) (*template.Template, error) {
 
 	return tmpl, nil
 }
+
+// ReadFile reads a file from the embedded resources and returns its
+// raw bytes. `file` is relative to the embedded "resources" directory.
+// Returns an error wrapping `fs.ErrNotExist` if the file is not
+// present in the embed (callers can branch on `errors.Is(err,
+// fs.ErrNotExist)` to apply a fallback).
+func ReadFile(file string) ([]byte, error) {
+	return resourcesFS.ReadFile("resources/" + file)
+}
+
+// Exists reports whether the named file is present in the embedded
+// resources. `file` is relative to the embedded "resources" directory.
+func Exists(file string) bool {
+	_, err := resourcesFS.Open("resources/" + file)
+	return err == nil
+}
