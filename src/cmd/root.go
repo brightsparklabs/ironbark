@@ -38,6 +38,7 @@ func Execute() {
 	rootCmd.AddCommand(newGenerateCmd())
 	rootCmd.AddCommand(newVersionCmd())
 	rootCmd.AddCommand(newDebugCmd())
+	rootCmd.AddCommand(newDocsCmd())
 
 	err := rootCmd.Execute()
 	if err != nil {
