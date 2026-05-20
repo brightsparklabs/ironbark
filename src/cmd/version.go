@@ -56,10 +56,6 @@ Examples:
   ironbark version --build-time
   ironbark version --json
 `,
-		// Suppress cobra's automatic usage/error reprint as `Execute` already
-		// surfaces errors via panic.
-		SilenceUsage:  true,
-		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return execVersion(os.Stdout, versionOptions{
 				short:     short,
