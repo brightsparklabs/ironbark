@@ -14,8 +14,10 @@ applications:
       # This will be appended to the `config.spec.source.ociUrl`.
       # The canary application is the upstream `cowboysysop/whoami` chart,
       # mirrored into the cluster's internal OCI registry by the
-      # `ironbark-canary-app` Zarf mirror package.
-      name: cowboysysop/charts/whoami
+      # `ironbark-canary-app` Zarf mirror package, where Ironbark
+      # publishes mirrored charts under
+      # `ironbark/charts/<upstream-host-and-path>/<chart>` (see AFC-32).
+      name: ironbark/charts/ghcr.io/cowboysysop/charts/whoami
       # Chart version to deploy.
       # IMPORTANT: Keep this aligned with `resources/packages/mirror/ironbark-canary-app/zarf.yaml`.
       targetRevision: 6.0.0
@@ -35,10 +37,10 @@ applications:
       # File parameters (equivalent to helm --set-file).
       # Allows setting Helm values from file contents.
       #fileParameters:
-      #  # Equivalent to `helm --set-file config.json=values/my-app/config.json`.
+      #  # Equivalent to `helm --set-file config.json=values/ironbark-canary-app/config.json`.
       #  - name: config.json
       #    path: values/ironbark-canary-app/config.json
-      #  # Equivalent to `helm --set-file tls.cert=values/my-app/cert.pem`.
+      #  # Equivalent to `helm --set-file tls.cert=values/ironbark-canary-app/cert.pem`.
       #  - name: tls.cert
       #    path: values/ironbark-canary-app/cert.pem
 

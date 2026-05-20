@@ -58,7 +58,7 @@ func newInitAllCmd() *cobra.Command {
 func execInitAll(cmd *cobra.Command, args []string) error {
 	slog.Info("Initialising Ironbark components ...")
 
-	if err := initPackages(); err != nil {
+	if err := initPackages(cmd.Context()); err != nil {
 		return WrapUserError(err, "Could not initialise Ironbark packages")
 	}
 	if err := initArgoRepoSecrets(cmd.Context()); err != nil {
@@ -92,27 +92,37 @@ func newInitPackagesCmd() *cobra.Command {
 // `Execute`.
 func execInitPackages(cmd *cobra.Command, args []string) error {
 	slog.Info("Initialising packages ...")
-	if err := initPackages(); err != nil {
+	if err := initPackages(cmd.Context()); err != nil {
 		return WrapUserError(err, "Could not initialise packages")
 	}
 	slog.Info("Successfully initialised packages")
 	return nil
 }
 
-func initPackages() error {
+// initPackages mirrors and deploys every Ironbark Zarf package found
+// under the configured internal packages directory.
+//
+// Charts staged inside mirror packages are pushed to the in-cluster
+// registry as a post-processing step (see AFC-32 and
+// `zarf.MirrorPackageCharts`) because `zarf package mirror-resources`
+// itself does not mirror Helm charts.
+func initPackages(ctx context.Context) error {
 	packagesDir := settings.InternalPackagesDir()
 
 	slog.Info("Mirroring packages ...")
 	mirrorPackages := filepath.Join(packagesDir, "mirror")
-	err := zarf.MirrorPackages(mirrorPackages)
-	if err != nil {
+	if err := zarf.MirrorPackages(mirrorPackages); err != nil {
 		return fmt.Errorf("could not mirror packages: %w", err)
+	}
+
+	slog.Info("Mirroring helm charts from packages ...")
+	if err := zarf.MirrorPackageCharts(ctx, mirrorPackages); err != nil {
+		return fmt.Errorf("could not mirror package charts: %w", err)
 	}
 
 	slog.Info("Deploying packages ...")
 	deployPackages := filepath.Join(packagesDir, "deploy")
-	err = zarf.DeployPackages(deployPackages)
-	if err != nil {
+	if err := zarf.DeployPackages(deployPackages); err != nil {
 		return fmt.Errorf("could not deploy packages: %w", err)
 	}
 

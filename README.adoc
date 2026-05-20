@@ -387,6 +387,8 @@ You can also run individual initialisation steps:
 [source,bash]
 ----
 # 1. Deploy and mirror Ironbark packages.
+#    Any Helm charts found inside mirror packages are also pushed to the
+#    in-cluster registry under `oci://<registry>/ironbark/charts/<provenance>/<chart>:<version>`. <1>
 ironbark init packages
 
 # 2. Set up ArgoCD repository secrets.
@@ -398,6 +400,7 @@ ironbark init argocd-app-of-apps-repo
 # 4. Deploy the ArgoCD App of Apps.
 ironbark init argocd-app
 ----
+<1> See <<Adding New Applications>> for details.
 
 === Managing Applications
 
@@ -580,29 +583,45 @@ To add a new application to your Ironbark deployment:
 
 . Ensure the Helm chart is mirrored to the Zarf OCI registry (via a Zarf package).
 +
-[IMPORTANT]
---
-The chart must:
-
-. Be pulled from from an OCI registry.
-  E.g. `oci://ghcr.io/cowboysysop/charts/whoami`.
-. Be manually included in the `images` block of the Zarf package.
-  E.g.
+Any chart declared under `components[].charts` in a mirror package is pushed to the in-cluster OCI registry automatically when `ironbark init packages` runs.
+The chart lands at a predictable path that preserves upstream provenance:
 +
-[source,yaml]
+URL-sourced charts (`oci://` or `https://`):: `oci://<zarf-registry>/ironbark/charts/<upstream-host-and-path>/<chart-name>:<chart-version>`.
++
+E.g.
++
+* A chart declared as:
++
 ----
-kind: ZarfPackageConfig
-...
-components:
-  - name: ...
-    ...
-    images:
-      # Images used by the chart.
-      - ...
+url: oci://ghcr.io/cowboysysop/charts/whoami (version `6.0.0`)
+----
+* Lands at:
++
+----
+oci://<zarf-registry>/ironbark/charts/ghcr.io/cowboysysop/charts/whoami:6.0.0
+----
+Local charts (`localPath`, `gitPath`):: `oci://<zarf-registry>/ironbark/charts/<zarf-package-name>/<chart-name>:<chart-version>`.
++
+The Zarf package name is used as the namespace because no upstream URL is available; this prevents collisions when two packages ship a chart with the same name.
++
+All four Zarf chart source types are supported (`localPath`, `gitPath`, `url: https://`, `url: oci://`).
+Use the predictable path to reference the mirrored chart from your ArgoCD `Application` (or any other in-cluster consumer).
++
+[NOTE]
+.Umbrella (chart-of-charts) support
+--
+Umbrella charts work without any special configuration.
+`zarf package create` vendors all `Chart.yaml` dependencies into the parent chart's `charts/` directory at package-build time, so by the time the chart reaches Ironbark's mirror step it is a self-contained archive.
+Only the umbrella chart itself is pushed to the in-cluster registry; sub-charts ride along inside it and Helm resolves them locally at install time.
 
-      # IMPORTANT: The chart as an OCI artifact to ensure chart is in OCI registry for ArgoCD.
-      - ghcr.io/cowboysysop/charts/whoami:6.0.0
-----
+Caveat: container images referenced from sub-chart templates or hooks are not always auto-detected by Zarf's image discovery pass.
+If a sub-chart fails to deploy because an image was not mirrored, add the missing image to the parent component's `images:` list in `zarf.yaml`.
+--
++
+[NOTE]
+--
+This works around an upstream Zarf limitation where `zarf package mirror-resources` only mirrors images and Git repos, never Helm charts.
+The chart-mirror step is implemented in Ironbark itself; see `src/internal/zarf/charts.go`.
 --
 
 . Edit the App of Apps configuration:
@@ -614,27 +633,37 @@ cd "${IRONBARK_HOST_DATA_DIR}/repos/ironbark-argocd-app-of-apps"
 
 . Add the application to `chart/values.yaml`:
 +
+The `chart.name` must be the chart path mirrored by Ironbark, without the `oci://<zarf-registry>/` prefix (ArgoCD prepends the registry host from the repo secret).
++
+For example, the canary chart at:
++
+----
+oci://<zarf-registry>/ironbark/charts/ghcr.io/cowboysysop/charts/whoami:6.0.0
+----
++
+Is referenced as:
++
 [source,yaml]
 ----
 applications:
-  - name: my-app
+  - name: whoami
     chart:
-      name: repository/chart-name
-      targetRevision: 1.0.0
+      name: ironbark/charts/ghcr.io/cowboysysop/charts/whoami
+      targetRevision: 6.0.0
     values:
-      path: values/my-app/values.yaml
+      path: values/whoami/values.yaml
       targetRevision: HEAD
       # Optional: Set Helm values from file contents (equivalent to `helm --set-file`).
       fileParameters:
-        # Equivalent to `helm --set-file config.json=values/my-app/config.json`.
+        # Equivalent to `helm --set-file config.json=values/whoami/config.json`.
         - name: config.json
-          path: values/my-app/config.json
-        # Equivalent to `helm --set-file tls.cert=values/my-app/cert.pem`.
+          path: values/whoami/config.json
+        # Equivalent to `helm --set-file tls.cert=values/whoami/cert.pem`.
         - name: tls.cert
-          path: values/my-app/cert.pem
+          path: values/whoami/cert.pem
 ----
 
-. Create values file at `values/my-app/values.yaml`:
+. Create values file at `values/whoami/values.yaml`:
 +
 [source,yaml]
 ----
@@ -647,17 +676,13 @@ replicaCount: 2
 [source,bash]
 ----
 git add .
-git commit -m "Add my-app"
+git commit -m "Add whoami"
 ironbark argo push
 ----
 
 . ArgoCD will automatically deploy the application.
 
 == Development
-
-=== Prerequisites
-
-* Go 1.25.5+
 
 === Project Structure
 
