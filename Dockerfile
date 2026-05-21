@@ -186,8 +186,18 @@ ENV \
   PATH="/app/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
   META_BUILD_DATE=${BUILD_DATE} \
   META_VCS_REF=${VCS_REF} \
-  APP_VERSION=${APP_VERSION}
+  APP_VERSION=${APP_VERSION} \
+  HOME=/tmp
 
+# Pre-create `/tmp` so it exists as an empty directory in the final
+# image. The `scratch` base contains no filesystem layout at all, and
+# any process that looks up `$HOME` (or otherwise expects `/tmp` to
+# already exist) will fail on a missing path without this. The
+# adjacent `ENV HOME=/tmp` then ensures the running `ironbark` binary
+# - and any `zarf` / `kubectl` subprocesses it spawns - have a valid,
+# writable home directory even though `scratch` ships no `/etc/passwd`
+# entry to resolve via `os/user`.
+WORKDIR /tmp
 WORKDIR /app
 COPY --from=builder-tooling /build/ .
 COPY --from=builder-golang /build/build/bin/ironbark bin/
