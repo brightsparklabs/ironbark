@@ -47,7 +47,10 @@ const defaultInstallerReleaseEnvironment = "production"
 
 // defaultLauncherImage is the default container image used by the generated
 // launcher script.
-const defaultLauncherImage = "brightsparklabs/ironbark:latest"
+// Fully-qualified image name (including the `docker.io/` registry
+// prefix) because Podman does not resolve unqualified names by default
+// and refuses to pull without an explicit registry.
+const defaultLauncherImage = "docker.io/brightsparklabs/ironbark:latest"
 
 // defaultLauncherEngine is the default container engine used by the generated
 // launcher script.
@@ -99,7 +102,7 @@ const defaultFapolicyZarfPath = "/opt/brightsparklabs/ironbark/production/data/z
 // defaultFapolicyK3sPath is the default host path of the installed `k3s`
 // CLI used in the generated fapolicyd rules. Matches the standard K3s
 // installation location.
-const defaultFapolicyK3sPath = "/usr/local/bin/k3s"
+const defaultFapolicyK3sPath = "/usr/sbin/k3s"
 
 // zarfBinaryName is the name of the Zarf CLI expected to be present at
 // `defaultZarfBootstrapSourcePath`. Used by the asset-existence

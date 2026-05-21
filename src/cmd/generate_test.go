@@ -37,7 +37,7 @@ func renderLauncher(t *testing.T, data launcherTemplateData) string {
 func validLauncherData() launcherTemplateData {
 	return launcherTemplateData{
 		Engine:         "podman",
-		Image:          "brightsparklabs/ironbark:latest",
+		Image:          "docker.io/brightsparklabs/ironbark:latest",
 		HostDataDir:    "/opt/brightsparklabs/ironbark/production/data",
 		HostKubeconfig: "${HOME}/.kube/config",
 	}
@@ -82,7 +82,7 @@ func withZarfBootstrapPreconditionsMet(t *testing.T) func() {
 func validZarfBootstrapData() zarfBootstrapTemplateData {
 	return zarfBootstrapTemplateData{
 		Engine:     "podman",
-		Image:      "brightsparklabs/ironbark:latest",
+		Image:      "docker.io/brightsparklabs/ironbark:latest",
 		SourcePath: "/app/resources/zarf/init",
 		OutputDir:  "/opt/brightsparklabs/ironbark/production/data/zarf/init",
 	}
@@ -159,7 +159,7 @@ func TestExecLauncher_withDefaults_rendersExpectedInvariants(t *testing.T) {
 		"IRONBARK_SCRIPT_VERBOSE",
 
 		// Image and engine show up in the rendered defaults.
-		"brightsparklabs/ironbark:latest",
+		"docker.io/brightsparklabs/ironbark:latest",
 		"podman",
 	}
 
@@ -426,13 +426,13 @@ func TestExecLauncher_cliFlags_endToEnd_executesRenderedScript(t *testing.T) {
 		{
 			name:        "no separator - all args forwarded verbatim",
 			args:        []string{"init", "all"},
-			mustContain: []string{"brightsparklabs/ironbark:latest init all"},
+			mustContain: []string{"docker.io/brightsparklabs/ironbark:latest init all"},
 		},
 		{
 			name: "separator - flags before are parsed, args after are forwarded",
 			args: []string{"--no-tty", "--verbose", "--", "init", "all"},
 			mustContain: []string{
-				"brightsparklabs/ironbark:latest init all",
+				"docker.io/brightsparklabs/ironbark:latest init all",
 				"DEBUG:",
 				// `--no-tty` should disable the engine `--tty`
 				// flag so the verbose log reports it disabled.
@@ -469,7 +469,7 @@ func TestExecLauncher_cliFlags_endToEnd_executesRenderedScript(t *testing.T) {
 				"registry.example/foo:1.0 argv",
 			},
 			mustOmit: []string{
-				"brightsparklabs/ironbark:latest argv",
+				"docker.io/brightsparklabs/ironbark:latest argv",
 			},
 		},
 		{
@@ -491,7 +491,7 @@ func TestExecLauncher_cliFlags_endToEnd_executesRenderedScript(t *testing.T) {
 			},
 			args: []string{"init", "all"},
 			mustContain: []string{
-				"brightsparklabs/ironbark:latest init all",
+				"docker.io/brightsparklabs/ironbark:latest init all",
 				"--tty flag",
 				"= disabled",
 			},
@@ -596,7 +596,7 @@ func TestExecZarfBootstrap_withDefaults_rendersExpectedInvariants(t *testing.T) 
 
 		// Default values appear in the rendered output.
 		"podman",
-		"brightsparklabs/ironbark:latest",
+		"docker.io/brightsparklabs/ironbark:latest",
 		"/app/resources/zarf/init",
 		"/opt/brightsparklabs/ironbark/production/data/zarf/init",
 	}

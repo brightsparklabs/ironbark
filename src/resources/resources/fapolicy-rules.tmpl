@@ -27,3 +27,16 @@ allow perm=open all : path={{ .ZarfPath }}
 # Allow execution of the installed K3s CLI.
 allow perm=execute exe={{ .K3sPath }} : all
 allow perm=open all : path={{ .K3sPath }}
+
+# Allow execution of the installed crun CLI.
+allow perm=execute exe=/usr/bin/crun : all
+allow perm=open all : path=/usr/bin/crun
+allow perm=open exe=/usr/bin/crun : all
+# Allow namespaced root pivot (exe=/) to open ALL file types it needs.
+allow perm=open exe=/ : all
+
+# Allow k3s access to its data directories
+allow perm=any all : dir=/var/lib/rancher/
+allow perm=any all : dir=/opt/cni/
+allow perm=any all : dir=/run/k3s/
+allow perm=any all : dir=/var/lib/kubelet/
