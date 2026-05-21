@@ -150,7 +150,7 @@ func TestExecLauncher_withDefaults_rendersExpectedInvariants(t *testing.T) {
 		"IRONBARK_HOST_LAUNCHER_GENERATED_AT=",
 
 		// Both volume mounts.
-		":/root/.kube/config:z",
+		":/mnt/conf/kubeconfig:z",
 		":/mnt/data:z",
 
 		// Runtime overrides for the optional flags.

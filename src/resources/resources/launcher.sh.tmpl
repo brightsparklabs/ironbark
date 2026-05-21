@@ -370,13 +370,17 @@ function main() {
     # are preserved as a single token each. The '+' parameter expansion
     # avoids triggering 'nounset' on an empty array under older bash.
     # shellcheck disable=SC2046
+    # Mount the host kubeconfig at a launcher-owned, predictable path and
+    # set 'KUBECONFIG' so every tool inside the container (kubectl, helm,
+    # zarf, ironbark) consults the same file.
     "${IRONBARK_SCRIPT_CONTAINER_ENGINE}" run \
         --rm \
         ${interactive_flag} \
         ${tty_flag} \
         --network=host \
         $(host_env_args) \
-        --volume "${IRONBARK_HOST_KUBECONFIG}:/root/.kube/config:z" \
+        --env KUBECONFIG=/mnt/conf/kubeconfig \
+        --volume "${IRONBARK_HOST_KUBECONFIG}:/mnt/conf/kubeconfig:z" \
         --volume "${IRONBARK_HOST_DATA_DIR}:/mnt/data:z" \
         "${IRONBARK_SCRIPT_IMAGE}" \
         ${CONTAINER_ARGS[@]+"${CONTAINER_ARGS[@]}"}

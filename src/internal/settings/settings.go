@@ -222,7 +222,7 @@ var catalogue = []Var{
 	},
 	{
 		Name:        "IRONBARK_HOST_KUBECONFIG",
-		Description: "Host kubeconfig file bind-mounted into the container as `/root/.kube/config`. Set by the generated launcher script.",
+		Description: "Host kubeconfig file bind-mounted into the container at `/mnt/conf/kubeconfig` (exported as `KUBECONFIG`). Set by the generated launcher script.",
 		Default:     "",
 		Scope:       ScopeLauncherForwarded,
 	},
