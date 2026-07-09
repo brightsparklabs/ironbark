@@ -22,6 +22,7 @@ ARG GOLANG_VERSION=1.26.3
 # Tool versions.
 ARG KUBECTL_VERSION=v1.36.1
 ARG ZARF_VERSION=v0.76.0
+ARG RKE2_VERSION=v1.33.5+rke2r1
 
 # ------------------------------------------------------------------------------
 # BUILDER STAGE - TOOLING
@@ -99,6 +100,68 @@ RUN for package_type in *; do \
     done
 
 # ------------------------------------------------------------------------------
+# BUILDER STAGE - RKE2 ARTIFACTS (OPTIONAL)
+# ------------------------------------------------------------------------------
+
+# This stage downloads RKE2 artifacts for air-gapped deployment. It is only
+# included in the final image when building the `ironbark-rke2` target.
+# The default `ironbark` target (K3s via Zarf) does not include these files.
+FROM ${UBUNTU_IMAGE} AS builder-rke2-artifacts
+
+ARG ARCH
+ARG RKE2_VERSION
+
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
+
+RUN apt-get update \
+      && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl
+
+# Make a self-contained directory which can be used to install RKE2.
+# This allows a single directory to be copied onto host if installing RKE2.
+#
+# IMPORTANT: this directory (under `/app/resources/rke2/` in the final
+# image after the `COPY --from=builder-rke2-artifacts /build/ .` below) and
+# the layout of its contents are a contract with the Go code that ships the
+# `generate rke2-bootstrap` command. Any change to this path or the
+# expected filenames MUST be mirrored in:
+#   - `src/cmd/generate.go`
+#       - `defaultRke2BootstrapSourcePath`
+#       - RKE2 artifact filename constants
+#   - `src/resources/resources/rke2-bootstrap.sh.tmpl` (which references the
+#     same defaults via the rendered template).
+# Otherwise the asset-existence check in `execRke2Bootstrap` will fail at
+# runtime even though the assets are present in the image.
+WORKDIR /build/resources/rke2
+
+# Download RKE2 installation script.
+RUN curl --fail --silent --show-error --location --retry 3 \
+      --output install.sh \
+      "https://get.rke2.io"
+
+# Download RKE2 binary tarball.
+RUN curl --fail --silent --show-error --location --retry 3 \
+      --output "rke2.linux-${ARCH}.tar.gz" \
+      "https://github.com/rancher/rke2/releases/download/${RKE2_VERSION}/rke2.linux-${ARCH}.tar.gz"
+
+# Download RKE2 images (using Cilium CNI). This is the largest artifact (~2GB).
+RUN curl --fail --silent --show-error --location --retry 3 \
+      --output "rke2-images-cilium.linux-${ARCH}.tar.zst" \
+      "https://github.com/rancher/rke2/releases/download/${RKE2_VERSION}/rke2-images-cilium.linux-${ARCH}.tar.zst"
+
+# Download checksums for verification.
+RUN curl --fail --silent --show-error --location --retry 3 \
+      --output "sha256sum-${ARCH}.txt" \
+      "https://github.com/rancher/rke2/releases/download/${RKE2_VERSION}/sha256sum-${ARCH}.txt"
+
+# Verify checksums of downloaded artifacts.
+RUN sha256sum -c --ignore-missing "sha256sum-${ARCH}.txt"
+
+# Write RKE2 version to JSON file for clarity.
+RUN echo "{\"version\": {\"rke2\": \"${RKE2_VERSION}\"}}" > VERSION.json
+
+# ------------------------------------------------------------------------------
 # BUILDER STAGE - GOLANG
 # ------------------------------------------------------------------------------
 
@@ -107,6 +170,8 @@ ARG APP_VERSION=dev
 ARG VCS_REF=unknown
 ARG BUILD_TIME_UTC=unknown
 ARG BUILD_DATE=unknown
+ARG KUBECTL_VERSION
+ARG ZARF_VERSION
 
 # Use bash with strict error handling for every `RUN` in this stage —
 # same rationale as `builder-tooling`. Defensive: nothing in this stage
@@ -146,19 +211,23 @@ RUN make build \
       BUILD_TIME_UTC=${BUILD_TIME_UTC} \
       BUILD_DATE=${BUILD_DATE}
 
+# Create version file documenting all bundled tools. This is done here
+# (rather than in the final stage) because `scratch` has no shell to run
+# `printf`. The file is copied into the final image below.
+RUN printf '{"version": {"ironbark": "%s", "kubectl": "%s", "zarf": "%s"}}\n' \
+      "${APP_VERSION}" \
+      "${KUBECTL_VERSION}" \
+      "${ZARF_VERSION}" \
+      > /build/VERSION.json
+
 # ------------------------------------------------------------------------------
-# FINAL STAGE
+# FINAL STAGE - BASE (SHARED)
 # ------------------------------------------------------------------------------
 
-# The final image is `scratch` to keep it minimal — the Go binary is
-# statically linked (`CGO_ENABLED=0`) and the bundled `kubectl`/`zarf`
-# binaries are likewise static, so no OS is required at runtime. Note
-# that this means there is no shell, no package manager, and no
-# coreutils inside the image. If you need to debug interactively during
-# development, swap to the Ubuntu base by commenting out the `scratch`
-# line and uncommenting the `${UBUNTU_IMAGE}` line below.
-FROM scratch
-# FROM ${UBUNTU_IMAGE}
+# Common base for both K3s and RKE2 variants. This stage contains everything
+# except the K8s distribution artifacts (Zarf init or RKE2 files).
+FROM scratch AS ironbark-base
+# FROM ${UBUNTU_IMAGE} AS ironbark-base
 
 ARG IRONBARK_DATA_DIR=/mnt/data
 ARG IRONBARK_INTERNAL_PACKAGES_DIR=/app/resources/packages
@@ -201,11 +270,40 @@ WORKDIR /tmp
 WORKDIR /app
 COPY --from=builder-tooling /build/ .
 COPY --from=builder-golang /build/build/bin/ironbark bin/
+COPY --from=builder-golang /build/VERSION.json .
 
 ENTRYPOINT ["/app/bin/ironbark"]
 
+# ------------------------------------------------------------------------------
+# FINAL STAGE - K3S VARIANT (DEFAULT)
+# ------------------------------------------------------------------------------
+
+# Default target: K3s via Zarf init. This is the original behaviour and
+# remains the default when no target is specified.
+FROM ironbark-base AS ironbark-k3s
+
 LABEL org.label-schema.name="ironbark" \
-      org.label-schema.description="Kubernetes management using the brightSPARK Labs opinionated deployment pattern" \
+      org.label-schema.description="Kubernetes management using the brightSPARK Labs opinionated deployment pattern (K3s via Zarf)" \
+      org.opencontainers.image.authors="brightSPARK Labs <enquire@brightsparklabs.com>" \
+      org.label-schema.vendor="brightSPARK Labs" \
+      org.label-schema.schema-version="1.0.0-rc1" \
+      org.label-schema.vcs-url="https://github.com/brightsparklabs/ironbark" \
+      org.label-schema.vcs-ref=${VCS_REF} \
+      org.label-schema.build-date=${BUILD_DATE}
+
+# ------------------------------------------------------------------------------
+# FINAL STAGE - RKE2 VARIANT
+# ------------------------------------------------------------------------------
+
+# RKE2 target: includes RKE2 artifacts for air-gapped deployment.
+# Build with: docker build --target ironbark-rke2 ...
+FROM ironbark-base AS ironbark-rke2
+
+# Copy RKE2 artifacts from the RKE2 builder stage.
+COPY --from=builder-rke2-artifacts /build/ .
+
+LABEL org.label-schema.name="ironbark-rke2" \
+      org.label-schema.description="Kubernetes management using the brightSPARK Labs opinionated deployment pattern (RKE2)" \
       org.opencontainers.image.authors="brightSPARK Labs <enquire@brightsparklabs.com>" \
       org.label-schema.vendor="brightSPARK Labs" \
       org.label-schema.schema-version="1.0.0-rc1" \

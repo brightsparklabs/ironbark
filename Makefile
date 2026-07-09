@@ -91,8 +91,12 @@ build/bin/ironbark: $(BUILD_INPUTS) README.adoc
 		&& CGO_ENABLED=0 GOOS=linux go build -ldflags "$(GO_LDFLAGS)" -o ../build/bin/ironbark .
 
 .PHONY: oci-image
-oci-image: ## Build OCI images.
+oci-image: oci-image-k3s oci-image-rke2 ## Build both K3s and RKE2 variant OCI images.
+
+.PHONY: oci-image-k3s
+oci-image-k3s: ## Build K3s variant OCI image.
 	docker build \
+		--target ironbark-k3s \
 		--build-arg APP_VERSION=$(APP_VERSION) \
 		--build-arg BUILD_DATE=$(BUILD_DATE) \
 		--build-arg BUILD_TIME_UTC=$(BUILD_TIME_UTC) \
@@ -100,9 +104,30 @@ oci-image: ## Build OCI images.
 		-t brightsparklabs/$(APP_NAME):$(APP_VERSION) \
 		-t brightsparklabs/$(APP_NAME):latest .
 
+.PHONY: oci-image-rke2
+oci-image-rke2: ## Build RKE2 variant OCI image.
+	docker build \
+		--target ironbark-rke2 \
+		--build-arg APP_VERSION=$(APP_VERSION) \
+		--build-arg BUILD_DATE=$(BUILD_DATE) \
+		--build-arg BUILD_TIME_UTC=$(BUILD_TIME_UTC) \
+		--build-arg VCS_REF=$(VCS_REF) \
+		-t brightsparklabs/$(APP_NAME)-rke2:$(APP_VERSION) \
+		-t brightsparklabs/$(APP_NAME)-rke2:latest .
+
 .PHONY: oci-image-save
-oci-image-save: oci-image ## Save OCI images.
+oci-image-save: oci-image-k3s-save oci-image-rke2-save ## Save both K3s and RKE2 variant OCI images.
+
+.PHONY: oci-image-k3s-save
+oci-image-k3s-save: oci-image-k3s ## Save K3s variant OCI images.
 	mkdir -p build/images
 	docker save \
 		brightsparklabs/$(APP_NAME):$(APP_VERSION) \
 		-o build/images/oci-brightsparklabs-$(APP_NAME)-$(APP_VERSION).tar
+
+.PHONY: oci-image-rke2-save
+oci-image-rke2-save: oci-image-rke2 ## Save RKE2 variant OCI images.
+	mkdir -p build/images
+	docker save \
+		brightsparklabs/$(APP_NAME)-rke2:$(APP_VERSION) \
+		-o build/images/oci-brightsparklabs-$(APP_NAME)-rke2-$(APP_VERSION).tar
