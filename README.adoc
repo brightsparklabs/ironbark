@@ -85,7 +85,7 @@ It is available in airgapped environments by running:
 
 [source,bash]
 ----
-podman run --rm brightsparklabs/ironbark docs
+podman run --rm docker.io/brightsparklabs/ironbark docs
 ----
 --
 
@@ -136,11 +136,14 @@ When piped through `bash`, the installer:
 
 [source,bash]
 ----
+# Explicitly use registry prefix as Podman defaults to short-name resolution enforcement.
+export IRONBARK_SCRIPT_IMAGE=docker.io/brightsparklabs/ironbark:<version>
+
 # Generate the installer (targeting the release environment specified in
 # `${IRONBARK_RELEASE_ENVIRONMENT}`) and pipe it through bash. `sudo` is
 # required to write under `${IRONBARK_INSTALL_BASE_DIR}`; ownership of
 # the tree is reverted to the invoking user automatically.
-podman run --rm brightsparklabs/ironbark generate installer \
+podman run --rm ${IRONBARK_SCRIPT_IMAGE} generate installer \
     --install-base-dir "${IRONBARK_INSTALL_BASE_DIR}" \
     --release-environment "${IRONBARK_RELEASE_ENVIRONMENT}" \
   | sudo bash
@@ -182,7 +185,7 @@ fi
 
 # Generate a launcher script (defaults to Podman) and install it onto
 # your $PATH at the canonical location.
-podman run --rm brightsparklabs/ironbark generate launcher \
+podman run --rm ${IRONBARK_SCRIPT_IMAGE} generate launcher \
   > "${IRONBARK_INSTALL_DIR}/bin/ironbark"
 chmod +x "${IRONBARK_INSTALL_DIR}/bin/ironbark"
 
@@ -196,7 +199,7 @@ Available options for `ironbark generate launcher`:
 
 [horizontal]
 `--container-engine`:: Container engine to use (`podman` or `docker`). Default: `podman`.
-`--image`:: Container image reference for Ironbark. Default: `brightsparklabs/ironbark:latest`.
+`--image`:: Container image reference for Ironbark. Default: `docker.io/brightsparklabs/ironbark:latest`.
 `--data-dir`:: Host directory mounted into the container as the Ironbark data directory. Default: `/opt/brightsparklabs/ironbark/production/data` (the canonical install location).
 `--kubeconfig`:: Host kubeconfig file mounted into the container. Default: `${HOME}/.kube/config`.
 `--no-interactive`:: Bake `IRONBARK_SCRIPT_NO_INTERACTIVE` on as the default in the generated script (useful for CI). Default: `false`.
@@ -232,7 +235,7 @@ To generate a launcher targeting Docker instead of Podman (substitute `podman` f
 
 [source,bash]
 ----
-docker run --rm brightsparklabs/ironbark generate launcher \
+docker run --rm docker.io/brightsparklabs/ironbark generate launcher \
   --container-engine docker \
   > "${IRONBARK_INSTALL_DIR}/bin/ironbark"
 chmod +x "${IRONBARK_INSTALL_DIR}/bin/ironbark"
@@ -270,7 +273,7 @@ Available options for `ironbark generate zarf-bootstrap`:
 
 [horizontal]
 `--container-engine`, `-e`:: Container engine to use (`podman` or `docker`). Default: `podman`.
-`--image`, `-i`:: Container image reference for Ironbark. Default: `brightsparklabs/ironbark:latest`.
+`--image`, `-i`:: Container image reference for Ironbark. Default: `docker.io/brightsparklabs/ironbark:latest`.
 `--source-path`, `-s`:: Path inside the container containing the Zarf CLI and init package. Default: `/app/resources/zarf/init`.
 `--output-dir`, `-o`:: Host directory which will receive the extracted Zarf assets. Default: `/opt/brightsparklabs/ironbark/production/data/zarf/init` (NOTE: This is inside the launcher's default data directory so no extra mount is required).
 
@@ -333,7 +336,7 @@ sudo -i
 
 # Bootstrap the host (installs K3s and the Zarf in-cluster components).
 cd "${IRONBARK_INSTALL_DIR}/data/zarf/init"
-./zarf init --confirm
+./zarf init --components k3s,git-server --confirm
 ----
 
 ==== Generating fapolicyd Rules
@@ -348,7 +351,7 @@ Generate a matching rules file with:
 ironbark generate fapolicy-rules \
   --zarf-path "${IRONBARK_INSTALL_DIR}/data/zarf/init/zarf" \
   --k3s-path /usr/local/bin/k3s \
-  | sudo tee /etc/fapolicyd/rules.d/30-ironbark.rules
+  | sudo tee /etc/fapolicyd/rules.d/00-ironbark.rules
 sudo systemctl restart fapolicyd
 ----
 
@@ -508,7 +511,7 @@ Default: `podman`
 |`IRONBARK_SCRIPT_IMAGE`
 |Container image reference used by the generated launcher script.
 
-Default: `brightsparklabs/ironbark:latest`
+Default: `docker.io/brightsparklabs/ironbark:latest`
 
 |`IRONBARK_SCRIPT_NO_INTERACTIVE`
 |When defined to ANY value, the generated launcher script omits the `--interactive` flag (useful in CI).
@@ -723,7 +726,7 @@ cd ironbark
 
 # Build zarf packages and extract to development location.
 make oci-image
-id=$(podman create brightsparklabs/ironbark:latest)
+id=$(podman create docker.io/brightsparklabs/ironbark:latest)
 mkdir -p /tmp/ironbark/
 podman cp $id:/app/resources/packages /tmp/ironbark/
 podman rm ${id}
