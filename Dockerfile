@@ -299,6 +299,9 @@ LABEL org.label-schema.name="ironbark" \
 # Build with: docker build --target ironbark-rke2 ...
 FROM ironbark-base AS ironbark-rke2
 
+# Set environment variable to indicate RKE2 variant.
+ENV IRONBARK_RKE2_AVAILABLE=true
+
 # Copy RKE2 artifacts from the RKE2 builder stage.
 COPY --from=builder-rke2-artifacts /build/ .
 

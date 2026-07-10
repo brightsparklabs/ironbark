@@ -29,6 +29,10 @@ const launcherTemplateFile = "launcher.sh.tmpl"
 // resources directory) of the Zarf bootstrap script template.
 const zarfBootstrapTemplateFile = "zarf-bootstrap.sh.tmpl"
 
+// rke2BootstrapTemplateFile is the path (relative to the embedded
+// resources directory) of the RKE2 bootstrap script template.
+const rke2BootstrapTemplateFile = "rke2-bootstrap.sh.tmpl"
+
 // fapolicyRulesTemplateFile is the path (relative to the embedded resources
 // directory) of the fapolicyd rules template.
 const fapolicyRulesTemplateFile = "fapolicy-rules.tmpl"
@@ -93,6 +97,21 @@ const defaultZarfBootstrapSourcePath = "/app/resources/zarf/init"
 // directory) and with `defaultFapolicyZarfPath` (the resulting `zarf`
 // binary path used by the default fapolicyd rules).
 const defaultZarfBootstrapOutputDir = "/opt/brightsparklabs/ironbark/production/data/zarf/init"
+
+// defaultRke2BootstrapSourcePath is the default path inside the
+// Ironbark container which contains the RKE2 installation artifacts.
+//
+// IMPORTANT: this constant must stay in lockstep with the path that the
+// Ironbark `Dockerfile` writes the RKE2 assets to (see the
+// `WORKDIR /build/resources/rke2/` block in the rke2-artifacts builder
+// stage and the final-stage `COPY --from=builder-rke2-artifacts /build/ .`
+// that transplants it under `/app/`). If the Dockerfile path changes, this
+// constant MUST be updated to match (and vice versa).
+const defaultRke2BootstrapSourcePath = "/app/resources/rke2"
+
+// defaultRke2BootstrapOutputDir is the default host directory which
+// will receive the extracted RKE2 assets when the bootstrap script is run.
+const defaultRke2BootstrapOutputDir = "/opt/brightsparklabs/ironbark/production/data/rke2"
 
 // defaultFapolicyZarfPath is the default host path of the extracted
 // `zarf` CLI used in the generated fapolicyd rules. Aligns with
@@ -210,6 +229,34 @@ type zarfBootstrapTemplateData struct {
 	IronbarkBuildTime string
 }
 
+// rke2BootstrapTemplateData holds the values rendered into the RKE2
+// bootstrap script template.
+type rke2BootstrapTemplateData struct {
+	// Engine is the container engine used to extract RKE2 from the
+	// Ironbark image (e.g. `podman`).
+	Engine string
+	// Image is the fully qualified container image reference for Ironbark.
+	Image string
+	// SourcePath is the path inside the container which contains the
+	// RKE2 installation artifacts.
+	SourcePath string
+	// OutputDir is the host directory which will receive the extracted
+	// RKE2 assets.
+	OutputDir string
+	// GeneratedAt is an ISO 8601 timestamp recording when the script was
+	// generated.
+	GeneratedAt string
+	// IronbarkVersion is the version of the Ironbark binary that
+	// generated the bootstrap script.
+	IronbarkVersion string
+	// IronbarkCommit is the short Git commit hash of the Ironbark binary
+	// that generated the bootstrap script.
+	IronbarkCommit string
+	// IronbarkBuildTime is the UTC ISO 8601 timestamp recording when the
+	// Ironbark binary that generated the bootstrap script was built.
+	IronbarkBuildTime string
+}
+
 // installerTemplateData holds the values rendered into the installer
 // script template.
 type installerTemplateData struct {
@@ -282,6 +329,16 @@ to a file (or piped into another tool) by the caller.
 
 	cmd.AddCommand(newGenerateLauncherCmd())
 	cmd.AddCommand(newGenerateZarfBootstrapCmd())
+
+	// Only expose rke2-bootstrap command if we're in development mode
+	// (always show for local testing) OR running in the RKE2 variant container.
+	// This prevents confusing users who are running the K3s variant.
+	isDev := version.GetVersion() == "dev"
+	isRke2Variant := os.Getenv("IRONBARK_RKE2_AVAILABLE") == "true"
+	if isDev || isRke2Variant {
+		cmd.AddCommand(newGenerateRke2BootstrapCmd())
+	}
+
 	cmd.AddCommand(newGenerateFapolicyRulesCmd())
 	cmd.AddCommand(newGenerateInstallerCmd())
 
@@ -570,6 +627,184 @@ func defaultZarfAssetsPresent(sourcePath string) error {
 		"no zarf init package (matching %q) found in %q",
 		zarfInitPackagePrefix+"*"+zarfInitPackageSuffix, sourcePath,
 	)
+}
+
+// -----------------------------------------------------------------------------
+// COMMAND: rke2-bootstrap
+// -----------------------------------------------------------------------------
+
+// newGenerateRke2BootstrapCmd creates the `generate rke2-bootstrap`
+// command which generates a host-side script that extracts the RKE2
+// installation artifacts out of the Ironbark container image. The
+// extracted assets are intended to be used to install RKE2 on the host
+// in an air-gapped environment.
+func newGenerateRke2BootstrapCmd() *cobra.Command {
+	var (
+		engine     string
+		image      string
+		sourcePath string
+		outputDir  string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "rke2-bootstrap",
+		Short: "Generate a script that extracts RKE2 artifacts from the Ironbark container for air-gapped installation",
+		Long: `Generate a host-side script that extracts the RKE2 installation
+artifacts out of the Ironbark container image.
+
+This command is used when you want to bootstrap a fresh host with RKE2
+instead of K3s (via Zarf). The generated script extracts all necessary RKE2
+installation files for an air-gapped deployment.
+
+The generated script is written to standard output and can be redirected to a
+file (typically ` + "`extract-rke2.sh`" + `) and executed on the host. When
+run, the script:
+  - Validates that the requested container engine is available on PATH.
+  - Creates the output directory (if it does not already exist).
+  - Creates a throwaway Ironbark container, copies the RKE2 assets out, then
+    removes the throwaway container.
+  - Prints next-step instructions for installing and configuring RKE2.
+
+The generated script does NOT run the RKE2 installation; the operator
+retains explicit control over the installation step. To allow execution of the
+RKE2 binaries under fapolicyd, also generate a matching rules file via
+` + "`ironbark generate fapolicy-rules`" + `.
+
+Example:
+
+  ironbark generate rke2-bootstrap > extract-rke2.sh
+  chmod +x extract-rke2.sh
+  ./extract-rke2.sh
+  cd /opt/brightsparklabs/ironbark/production/data/rke2
+  sudo INSTALL_RKE2_ARTIFACT_PATH=/opt/brightsparklabs/ironbark/production/data/rke2 ./install.sh
+`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return execRke2Bootstrap(os.Stdout, rke2BootstrapTemplateData{
+				Engine:     engine,
+				Image:      image,
+				SourcePath: sourcePath,
+				OutputDir:  outputDir,
+			})
+		},
+	}
+
+	cmd.Flags().StringVarP(&engine, "container-engine", "e", defaultLauncherEngine,
+		"Container engine to use (`podman` or `docker`)")
+	cmd.Flags().StringVarP(&image, "image", "i", "docker.io/brightsparklabs/ironbark-rke2:latest",
+		"Container image reference for Ironbark RKE2 variant")
+	cmd.Flags().StringVarP(&sourcePath, "source-path", "s", defaultRke2BootstrapSourcePath,
+		"Path inside the container containing the RKE2 installation artifacts")
+	cmd.Flags().StringVarP(&outputDir, "output-dir", "o", defaultRke2BootstrapOutputDir,
+		"Host directory which will receive the extracted RKE2 assets")
+
+	return cmd
+}
+
+// execRke2Bootstrap renders the RKE2 bootstrap script template and
+// writes the result to the supplied writer.
+//
+// Build-time metadata (current time, Ironbark version, commit, build time)
+// is populated automatically; callers only need to supply the
+// user-configurable fields (engine, image, source path, output directory).
+//
+// The function refuses to render when the RKE2 assets are not physically
+// present at the configured source path. This catches misconfigurations
+// such as a stale image or a wrong `--source-path` before the operator
+// runs the resulting script on the host.
+func execRke2Bootstrap(out io.Writer, data rke2BootstrapTemplateData) error {
+	normalisedEngine := strings.ToLower(strings.TrimSpace(data.Engine))
+	if _, ok := supportedLauncherEngines[normalisedEngine]; !ok {
+		return NewUserError("unsupported container engine %q (must be one of: podman, docker)", data.Engine)
+	}
+	data.Engine = normalisedEngine
+
+	if strings.TrimSpace(data.Image) == "" {
+		return NewUserError("image must not be empty")
+	}
+	if strings.TrimSpace(data.SourcePath) == "" {
+		return NewUserError("source-path must not be empty")
+	}
+	if strings.TrimSpace(data.OutputDir) == "" {
+		return NewUserError("output-dir must not be empty")
+	}
+
+	// Verify the RKE2 assets are physically present at the configured
+	// source path before emitting a script that promises to extract them.
+	if err := defaultRke2AssetsPresent(data.SourcePath); err != nil {
+		return NewUserError(
+			"RKE2 assets not found. This command is only available in the ironbark-rke2 container variant.\n" +
+			"Please use the RKE2 variant image:\n\n" +
+			"  podman run --rm brightsparklabs/ironbark-rke2:latest generate rke2-bootstrap > extract-rke2.sh\n" +
+			"\nOriginal error: %v", err)
+	}
+
+	data.GeneratedAt = time.Now().UTC().Format(time.RFC3339)
+	data.IronbarkVersion = version.GetVersion()
+	data.IronbarkCommit = version.GetCommit()
+	data.IronbarkBuildTime = version.GetBuildTime()
+
+	tmpl, err := resources.LoadTemplate(rke2BootstrapTemplateFile)
+	if err != nil {
+		return fmt.Errorf("could not load rke2-bootstrap template: %w", err)
+	}
+
+	if err := tmpl.Execute(out, data); err != nil {
+		return fmt.Errorf("could not render rke2-bootstrap template: %w", err)
+	}
+
+	return nil
+}
+
+// defaultRke2AssetsPresent verifies that the RKE2 assets are present in
+// the supplied `sourcePath` directory. It checks for the expected RKE2
+// installation files (matching the layout produced by the Ironbark
+// `Dockerfile`). Returns a descriptive error when any expected asset is
+// missing.
+func defaultRke2AssetsPresent(sourcePath string) error {
+	info, err := os.Stat(sourcePath)
+	if err != nil {
+		return fmt.Errorf("source path %q is not accessible: %w", sourcePath, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("source path %q is not a directory", sourcePath)
+	}
+
+	// Check for required RKE2 files.
+	requiredFiles := []string{
+		"install.sh",
+		"VERSION.json",
+	}
+
+	for _, file := range requiredFiles {
+		filePath := filepath.Join(sourcePath, file)
+		if _, err := os.Stat(filePath); err != nil {
+			return fmt.Errorf("required RKE2 file not found at %q: %w", filePath, err)
+		}
+	}
+
+	// Check that at least one RKE2 artifact exists (tar.gz or tar.zst).
+	entries, err := os.ReadDir(sourcePath)
+	if err != nil {
+		return fmt.Errorf("could not read source path %q: %w", sourcePath, err)
+	}
+
+	hasRke2Artifacts := false
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasPrefix(name, "rke2") && (strings.HasSuffix(name, ".tar.gz") || strings.HasSuffix(name, ".tar.zst")) {
+			hasRke2Artifacts = true
+			break
+		}
+	}
+
+	if !hasRke2Artifacts {
+		return fmt.Errorf("no RKE2 artifacts (rke2*.tar.gz or rke2*.tar.zst) found in %q", sourcePath)
+	}
+
+	return nil
 }
 
 // -----------------------------------------------------------------------------
