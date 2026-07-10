@@ -9,9 +9,9 @@ Kubernetes management tooling that implements the brightSPARK Labs opinionated d
 == Compatibility
 
 |===
-|Ironbark Version |Zarf Version
+|Ironbark Version |Zarf Version |RKE2 Version (RKE2 variant only)
 
-|0.x.y |0.64.0
+|0.x.y |0.64.0 |v1.33.5+rke2r1
 |===
 
 == Overview
@@ -22,6 +22,7 @@ Ironbark is a CLI tool that bootstraps and manages Kubernetes clusters in air-ga
 https://zarf.dev/[Zarf]:: For packaging and deploying applications to air-gapped Kubernetes clusters.
 https://argo-cd.readthedocs.io/[ArgoCD]:: For GitOps-based continuous deployment.
 https://argo-cd.readthedocs.io/en/latest/operator-manual/cluster-bootstrapping/#app-of-apps-pattern-alternative[App of Apps Pattern]:: For managing multiple applications declaratively.
+https://docs.rke2.io/[RKE2]:: (Optional) Rancher's security-focused Kubernetes distribution as an alternative to K3s.
 
 Ironbark automates the setup of a complete GitOps workflow in disconnected environments by:
 
@@ -38,6 +39,7 @@ Zarf integration:: Packages all dependencies for offline installation.
 GitOps ready:: Automated ArgoCD setup with App of Apps pattern.
 Secure by default:: Automated secret management and TLS proxy configuration.
 Opinionated workflow:: Standardised deployment patterns across teams.
+Multiple Kubernetes distributions:: Supports both K3s (via Zarf) and RKE2 for cluster bootstrapping.
 
 == Architecture
 
@@ -85,13 +87,30 @@ It is available in airgapped environments by running:
 
 [source,bash]
 ----
+# K3s variant (default).
 podman run --rm docker.io/brightsparklabs/ironbark docs
+
+# RKE2 variant.
+podman run --rm docker.io/brightsparklabs/ironbark-rke2 docs
 ----
+--
+
+[NOTE]
+--
+Ironbark is available in two container image variants:
+
+[horizontal]
+`brightsparklabs/ironbark:latest`:: Default variant with K3s bootstrapping support via Zarf.
+`brightsparklabs/ironbark-rke2:latest`:: RKE2 variant with RKE2 installation artifacts (~461MB larger).
+
+Both variants include the same Ironbark CLI and can deploy ArgoCD and applications once the Kubernetes cluster is running.
+The only difference is whether you want to bootstrap with K3s (via Zarf) or RKE2.
+Choose the RKE2 variant if you require RKE2's enhanced security and compliance features.
 --
 
 === Prerequisites
 
-* The environment has a working Kubernetes cluster (EKS, K3s, etc.).
+* The environment has a working Kubernetes cluster (EKS, RKE2, K3s, etc.).
 * `kubectl` is configured and connected to the cluster.
 * Zarf has been initialised on the cluster (`zarf init`).
 
@@ -337,6 +356,126 @@ sudo -i
 # Bootstrap the host (installs K3s and the Zarf in-cluster components).
 cd "${IRONBARK_INSTALL_DIR}/data/zarf/init"
 ./zarf init --components k3s,git-server --confirm
+----
+
+==== Bootstrap with RKE2 (Alternative to K3s)
+
+[NOTE]
+--
+This section applies when you want to use RKE2 instead of K3s for the Kubernetes cluster.
+RKE2 is Rancher's next-generation Kubernetes distribution focused on security and compliance.
+--
+
+Ironbark provides an RKE2 variant container image (`brightsparklabs/ironbark-rke2:latest`) that includes all necessary RKE2 installation artifacts for air-gapped deployment.
+
+===== Extract RKE2 Artifacts
+
+First, extract the RKE2 installation files from the RKE2 variant container:
+
+[source,bash]
+----
+# Generate the RKE2 extraction script using the RKE2 variant image.
+# Must use ironbark-rke2 image, not the default ironbark image.
+docker run --rm docker.io/brightsparklabs/ironbark-rke2:latest \
+  generate rke2-bootstrap > extract-rke2.sh
+chmod +x extract-rke2.sh
+./extract-rke2.sh
+
+# Ensure the current user can access the extracted files.
+sudo chown -R "$(id -u):$(id -g)" "${IRONBARK_INSTALL_DIR}/data/rke2"
+----
+
+Available options for `ironbark generate rke2-bootstrap`:
+
+[horizontal]
+`--container-engine`, `-e`:: Container engine to use (`podman` or `docker`). Default: `podman`.
+`--image`, `-i`:: Container image reference for Ironbark RKE2 variant. Default: `docker.io/brightsparklabs/ironbark-rke2:latest`.
+`--source-path`, `-s`:: Path inside the container containing the RKE2 installation artifacts. Default: `/app/resources/rke2`.
+`--output-dir`, `-o`:: Host directory which will receive the extracted RKE2 assets. Default: `/opt/brightsparklabs/ironbark/production/data/rke2`.
+
+*The generated script:*
+
+* Validates that the requested container engine is available on `PATH`.
+* Creates the output directory if it does not already exist.
+* Creates a throwaway Ironbark container, copies the RKE2 assets out, then removes the throwaway container.
+* Honours the following runtime overrides so you can change the defaults without regenerating the script:
+.. `IRONBARK_SCRIPT_CONTAINER_ENGINE`
+.. `IRONBARK_SCRIPT_IMAGE`
+.. `IRONBARK_SCRIPT_RKE2_SOURCE_PATH`
+.. `IRONBARK_SCRIPT_RKE2_OUTPUT_DIR`
+.. `IRONBARK_SCRIPT_VERBOSE`
+* Does NOT run the RKE2 installation itself; the operator retains explicit control over the installation step.
+
+The extraction script downloads the following artifacts (~461MB total):
+
+* `install.sh` - RKE2 installation script
+* `rke2.linux-amd64.tar.gz` - RKE2 binaries (~38MB)
+* `rke2-images-cilium.linux-amd64.tar.zst` - Container images with Cilium CNI (~424MB)
+* `sha256sum-amd64.txt` - Checksums for verification
+* `VERSION.json` - RKE2 version information
+
+===== Install RKE2
+
+After extracting the artifacts, install RKE2 in air-gapped mode:
+
+[source,bash]
+----
+cd "${IRONBARK_INSTALL_DIR}/data/rke2"
+
+# Install RKE2 using the extracted artifacts (air-gapped installation).
+sudo INSTALL_RKE2_ARTIFACT_PATH="${IRONBARK_INSTALL_DIR}/data/rke2" ./install.sh
+----
+
+===== Configure RKE2
+
+Create the RKE2 configuration file:
+
+[source,bash]
+----
+sudo mkdir -p /etc/rancher/rke2
+
+# Example server configuration (customize as needed).
+sudo tee /etc/rancher/rke2/config.yaml > /dev/null <<EOF
+# RKE2 server configuration
+# See: https://docs.rke2.io/install/configuration
+write-kubeconfig-mode: "0644"
+EOF
+----
+
+===== Start RKE2
+
+Enable and start the RKE2 service:
+
+[source,bash]
+----
+# For server node (control plane).
+sudo systemctl enable rke2-server.service
+sudo systemctl start rke2-server.service
+
+# Wait for RKE2 to be ready.
+sudo systemctl status rke2-server.service
+
+# Configure kubectl to use the RKE2 cluster.
+export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
+/var/lib/rancher/rke2/bin/kubectl get nodes
+----
+
+For agent (worker) nodes, use `rke2-agent.service` instead.
+
+===== Initialize Zarf on RKE2
+
+After RKE2 is running, you can initialize Zarf without the K3s component:
+
+[source,bash]
+----
+# Extract Zarf assets (if not already done).
+ironbark generate zarf-bootstrap > extract-zarf.sh
+chmod +x extract-zarf.sh
+./extract-zarf.sh
+
+# Initialize Zarf on the RKE2 cluster.
+cd "${IRONBARK_INSTALL_DIR}/data/zarf/init"
+./zarf init --components=git-server --confirm
 ----
 
 ==== Generating fapolicyd Rules
