@@ -161,6 +161,9 @@ RUN sha256sum -c --ignore-missing "sha256sum-${ARCH}.txt"
 # Write RKE2 version to JSON file for clarity.
 RUN echo "{\"version\": {\"rke2\": \"${RKE2_VERSION}\"}}" > VERSION.json
 
+# Copy the RKE2 configuration template.
+COPY src/resources/resources/rke2-config.yaml.tmpl config.yaml.template
+
 # ------------------------------------------------------------------------------
 # BUILDER STAGE - GOLANG
 # ------------------------------------------------------------------------------

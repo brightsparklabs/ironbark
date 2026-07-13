@@ -101,7 +101,7 @@ Ironbark is available in two container image variants:
 
 [horizontal]
 `brightsparklabs/ironbark:latest`:: Default variant with K3s bootstrapping support via Zarf.
-`brightsparklabs/ironbark-rke2:latest`:: RKE2 variant with RKE2 installation artifacts (~461MB larger).
+`brightsparklabs/ironbark-rke2:latest`:: RKE2 variant with RKE2 installation artifacts.
 
 Both variants include the same Ironbark CLI and can deploy ArgoCD and applications once the Kubernetes cluster is running.
 The only difference is whether you want to bootstrap with K3s (via Zarf) or RKE2.
@@ -406,11 +406,11 @@ Available options for `ironbark generate rke2-bootstrap`:
 .. `IRONBARK_SCRIPT_VERBOSE`
 * Does NOT run the RKE2 installation itself; the operator retains explicit control over the installation step.
 
-The extraction script downloads the following artifacts (~461MB total):
+The extraction script downloads the following artifacts:
 
 * `install.sh` - RKE2 installation script
-* `rke2.linux-amd64.tar.gz` - RKE2 binaries (~38MB)
-* `rke2-images-cilium.linux-amd64.tar.zst` - Container images with Cilium CNI (~424MB)
+* `rke2.linux-amd64.tar.gz` - RKE2 binaries
+* `rke2-images-cilium.linux-amd64.tar.zst` - Container images with Cilium CNI
 * `sha256sum-amd64.txt` - Checksums for verification
 * `VERSION.json` - RKE2 version information
 
@@ -435,15 +435,23 @@ sudo INSTALL_RKE2_ARTIFACT_PATH="${IRONBARK_INSTALL_DIR}/data/rke2" ./install.sh
 
 ===== Configure RKE2
 
-Create the RKE2 configuration file with Cilium CNI:
+Create the RKE2 configuration file with Cilium CNI.
+The extracted artifacts include a template configuration file:
 
 [source,bash]
 ----
+# Copy the template configuration to the RKE2 config directory.
 sudo mkdir -p /etc/rancher/rke2
+sudo cp /tmp/rke2-cilium/config.yaml.template /etc/rancher/rke2/config.yaml
 
-# RKE2 server configuration with Cilium CNI.
-# The extracted artifacts include Cilium container images.
-sudo tee /etc/rancher/rke2/config.yaml > /dev/null <<EOF
+# Review and modify the configuration as needed.
+sudo vi /etc/rancher/rke2/config.yaml
+----
+
+The template configuration includes:
+
+[source,yaml]
+----
 # RKE2 server configuration
 # See: https://docs.rke2.io/install/configuration
 
@@ -455,10 +463,12 @@ cni: cilium
 write-kubeconfig-mode: "0644"
 
 # Additional TLS SANs for API server certificate.
+# Add any additional hostnames or IPs that clients will use to access the API server.
 tls-san:
   - localhost
   - 127.0.0.1
-EOF
+  # - your-hostname.example.com
+  # - 192.168.1.100
 ----
 
 [NOTE]
@@ -478,7 +488,7 @@ Enable and start the RKE2 service:
 sudo systemctl enable rke2-server.service
 sudo systemctl start rke2-server.service
 
-# Wait for RKE2 to be ready.
+# Wait for RKE2 to be ready (may take 1-2 minutes).
 sudo systemctl status rke2-server.service
 
 # Configure kubectl to use the RKE2 cluster.
@@ -486,7 +496,140 @@ export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
 /var/lib/rancher/rke2/bin/kubectl get nodes
 ----
 
-For agent (worker) nodes, use `rke2-agent.service` instead.
+[NOTE]
+--
+On a single-node cluster, you may see one Cilium operator pod in `Pending` status.
+This is normal and expected behaviour.
+
+The Cilium operator deployment is configured for 2 replicas (high availability), but both replicas try to bind to the same host ports.
+On a single-node cluster, only one replica can bind to those ports, so the second remains pending.
+
+Check the status:
+[source,bash]
+----
+/var/lib/rancher/rke2/bin/kubectl get deployment -n kube-system cilium-operator
+----
+
+You should see `READY 1/2`, which means 1 of 2 desired replicas is running.
+This is sufficient for full Cilium operation.
+The second replica will automatically schedule when you add a second node to the cluster.
+--
+
+===== Adding Additional Nodes
+
+RKE2 supports two types of nodes:
+
+[horizontal]
+Server nodes:: Control plane + etcd + worker (recommended for small deployments, provides HA for control plane)
+Agent nodes:: Worker only (for larger deployments where you want dedicated control plane nodes)
+
+====== Adding Server Nodes (Control Plane + Worker)
+
+For small deployments, adding additional server nodes provides high availability for the control plane while also serving as workers.
+
+*On the first server node:*
+
+[source,bash]
+----
+# Get the server token (required for additional server nodes to join).
+sudo cat /var/lib/rancher/rke2/server/token
+----
+
+*On each additional server node:*
+
+[source,bash]
+----
+# Extract and install RKE2 using the same process as the first server node.
+# (Use the same ironbark-rke2 image and bootstrap script)
+
+# Create server configuration.
+sudo mkdir -p /etc/rancher/rke2
+sudo tee /etc/rancher/rke2/config.yaml > /dev/null <<EOF
+# RKE2 server configuration (joining existing cluster)
+server: https://<FIRST_SERVER_IP>:9345
+token: <SERVER_TOKEN>
+
+# Use Cilium as the CNI
+cni: cilium
+
+# Make kubeconfig readable by non-root users
+write-kubeconfig-mode: "0644"
+
+# Additional TLS SANs for API server certificate
+tls-san:
+  - localhost
+  - 127.0.0.1
+EOF
+
+# Stage the RKE2 images.
+cd /path/to/rke2-artifacts
+sudo mkdir -p /var/lib/rancher/rke2/agent/images/
+sudo cp rke2-images-cilium.linux-amd64.tar.zst /var/lib/rancher/rke2/agent/images/
+
+# Start the RKE2 server service.
+sudo systemctl enable rke2-server.service
+sudo systemctl start rke2-server.service
+----
+
+Replace `<FIRST_SERVER_IP>` with the IP address of your first server node and `<SERVER_TOKEN>` with the token from `/var/lib/rancher/rke2/server/token`.
+
+[IMPORTANT]
+--
+For production high availability, you should have an odd number of server nodes (3 or 5 recommended) to maintain etcd quorum.
+--
+
+====== Adding Agent Nodes (Worker Only)
+
+For larger deployments where you want dedicated control plane nodes.
+
+*On any server node:*
+
+[source,bash]
+----
+# Get the node token (required for agent nodes to join).
+sudo cat /var/lib/rancher/rke2/server/node-token
+----
+
+*On each agent node:*
+
+[source,bash]
+----
+# Extract and install RKE2 using the same process as the server node.
+# (Use the same ironbark-rke2 image and bootstrap script)
+
+# Create agent configuration.
+sudo mkdir -p /etc/rancher/rke2
+sudo tee /etc/rancher/rke2/config.yaml > /dev/null <<EOF
+# RKE2 agent configuration
+server: https://<SERVER_IP>:9345
+token: <NODE_TOKEN>
+EOF
+
+# Stage the RKE2 images.
+cd /path/to/rke2-artifacts
+sudo mkdir -p /var/lib/rancher/rke2/agent/images/
+sudo cp rke2-images-cilium.linux-amd64.tar.zst /var/lib/rancher/rke2/agent/images/
+
+# Start the RKE2 agent service.
+sudo systemctl enable rke2-agent.service
+sudo systemctl start rke2-agent.service
+----
+
+Replace `<SERVER_IP>` with the IP address of any server node and `<NODE_TOKEN>` with the token from `/var/lib/rancher/rke2/server/node-token`.
+
+====== Verifying Node Addition
+
+Once nodes join, verify on any server node:
+
+[source,bash]
+----
+/var/lib/rancher/rke2/bin/kubectl get nodes
+----
+
+You should see all nodes listed.
+Server nodes will show roles `control-plane,etcd,master` while agent nodes show `<none>`.
+
+The pending Cilium operator pod will automatically schedule to an available node once a second node joins.
 
 ===== Initialize Zarf on RKE2
 
