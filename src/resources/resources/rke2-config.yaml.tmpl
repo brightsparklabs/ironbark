@@ -1,0 +1,17 @@
+# RKE2 server configuration
+# See: https://docs.rke2.io/install/configuration
+
+# Use Cilium as the CNI (Container Network Interface).
+# Cilium provides eBPF-based networking, security, and observability.
+cni: cilium
+
+# Make kubeconfig readable by non-root users.
+write-kubeconfig-mode: "0644"
+
+# Additional TLS SANs for API server certificate.
+# Add any additional hostnames or IPs that clients will use to access the API server.
+tls-san:
+  - localhost
+  - 127.0.0.1
+  # - your-hostname.example.com
+  # - 192.168.1.100

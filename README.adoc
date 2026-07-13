@@ -9,9 +9,9 @@ Kubernetes management tooling that implements the brightSPARK Labs opinionated d
 == Compatibility
 
 |===
-|Ironbark Version |Zarf Version
+|Ironbark Version |Zarf Version |RKE2 Version (RKE2 variant only)
 
-|0.x.y |0.64.0
+|0.x.y |0.64.0 |v1.33.5+rke2r1
 |===
 
 == Overview
@@ -22,6 +22,7 @@ Ironbark is a CLI tool that bootstraps and manages Kubernetes clusters in air-ga
 https://zarf.dev/[Zarf]:: For packaging and deploying applications to air-gapped Kubernetes clusters.
 https://argo-cd.readthedocs.io/[ArgoCD]:: For GitOps-based continuous deployment.
 https://argo-cd.readthedocs.io/en/latest/operator-manual/cluster-bootstrapping/#app-of-apps-pattern-alternative[App of Apps Pattern]:: For managing multiple applications declaratively.
+https://docs.rke2.io/[RKE2]:: (Optional) Rancher's security-focused Kubernetes distribution as an alternative to K3s.
 
 Ironbark automates the setup of a complete GitOps workflow in disconnected environments by:
 
@@ -38,6 +39,7 @@ Zarf integration:: Packages all dependencies for offline installation.
 GitOps ready:: Automated ArgoCD setup with App of Apps pattern.
 Secure by default:: Automated secret management and TLS proxy configuration.
 Opinionated workflow:: Standardised deployment patterns across teams.
+Multiple Kubernetes distributions:: Supports both K3s (via Zarf) and RKE2 for cluster bootstrapping.
 
 == Architecture
 
@@ -85,13 +87,30 @@ It is available in airgapped environments by running:
 
 [source,bash]
 ----
+# K3s variant (default).
 podman run --rm docker.io/brightsparklabs/ironbark docs
+
+# RKE2 variant.
+podman run --rm docker.io/brightsparklabs/ironbark-rke2 docs
 ----
+--
+
+[NOTE]
+--
+Ironbark is available in two container image variants:
+
+[horizontal]
+`brightsparklabs/ironbark:latest`:: Default variant with K3s bootstrapping support via Zarf.
+`brightsparklabs/ironbark-rke2:latest`:: RKE2 variant with RKE2 installation artifacts.
+
+Both variants include the same Ironbark CLI and can deploy ArgoCD and applications once the Kubernetes cluster is running.
+The only difference is whether you want to bootstrap with K3s (via Zarf) or RKE2.
+Choose the RKE2 variant if you require RKE2's enhanced security and compliance features.
 --
 
 === Prerequisites
 
-* The environment has a working Kubernetes cluster (EKS, K3s, etc.).
+* The environment has a working Kubernetes cluster (EKS, RKE2, K3s, etc.).
 * `kubectl` is configured and connected to the cluster.
 * Zarf has been initialised on the cluster (`zarf init`).
 
@@ -337,6 +356,295 @@ sudo -i
 # Bootstrap the host (installs K3s and the Zarf in-cluster components).
 cd "${IRONBARK_INSTALL_DIR}/data/zarf/init"
 ./zarf init --components k3s,git-server --confirm
+----
+
+==== Bootstrap with RKE2 (Alternative to K3s)
+
+[NOTE]
+--
+This section applies when you want to use RKE2 instead of K3s for the Kubernetes cluster.
+RKE2 is Rancher's next-generation Kubernetes distribution focused on security and compliance.
+--
+
+Ironbark provides an RKE2 variant container image (`brightsparklabs/ironbark-rke2:latest`) that includes all necessary RKE2 installation artifacts for air-gapped deployment.
+
+===== Extract RKE2 Artifacts
+
+First, extract the RKE2 installation files from the RKE2 variant container:
+
+[source,bash]
+----
+# Generate the RKE2 extraction script using the RKE2 variant image.
+# Must use ironbark-rke2 image, not the default ironbark image.
+docker run --rm docker.io/brightsparklabs/ironbark-rke2:latest \
+  generate rke2-bootstrap > extract-rke2.sh
+chmod +x extract-rke2.sh
+./extract-rke2.sh
+
+# Ensure the current user can access the extracted files.
+sudo chown -R "$(id -u):$(id -g)" "${IRONBARK_INSTALL_DIR}/data/rke2"
+----
+
+Available options for `ironbark generate rke2-bootstrap`:
+
+[horizontal]
+`--container-engine`, `-e`:: Container engine to use (`podman` or `docker`). Default: `podman`.
+`--image`, `-i`:: Container image reference for Ironbark RKE2 variant. Default: `docker.io/brightsparklabs/ironbark-rke2:latest`.
+`--source-path`, `-s`:: Path inside the container containing the RKE2 installation artifacts. Default: `/app/resources/rke2`.
+`--output-dir`, `-o`:: Host directory which will receive the extracted RKE2 assets. Default: `/opt/brightsparklabs/ironbark/production/data/rke2`.
+
+*The generated script:*
+
+* Validates that the requested container engine is available on `PATH`.
+* Creates the output directory if it does not already exist.
+* Creates a throwaway Ironbark container, copies the RKE2 assets out, then removes the throwaway container.
+* Honours the following runtime overrides so you can change the defaults without regenerating the script:
+.. `IRONBARK_SCRIPT_CONTAINER_ENGINE`
+.. `IRONBARK_SCRIPT_IMAGE`
+.. `IRONBARK_SCRIPT_RKE2_SOURCE_PATH`
+.. `IRONBARK_SCRIPT_RKE2_OUTPUT_DIR`
+.. `IRONBARK_SCRIPT_VERBOSE`
+* Does NOT run the RKE2 installation itself; the operator retains explicit control over the installation step.
+
+The extraction script downloads the following artifacts:
+
+* `install.sh` - RKE2 installation script
+* `rke2.linux-amd64.tar.gz` - RKE2 binaries
+* `rke2-images-cilium.linux-amd64.tar.zst` - Container images with Cilium CNI
+* `sha256sum-amd64.txt` - Checksums for verification
+* `VERSION.json` - RKE2 version information
+
+[IMPORTANT]
+--
+The extracted artifacts include Cilium container images.
+To use Cilium, you must add `cni: cilium` to `/etc/rancher/rke2/config.yaml` (see configuration step below).
+Without this setting, RKE2 will default to Canal (Calico + Flannel) and the Cilium images will not be used.
+--
+
+===== Install RKE2
+
+After extracting the artifacts, install RKE2 in air-gapped mode:
+
+[source,bash]
+----
+cd "${IRONBARK_INSTALL_DIR}/data/rke2"
+
+# Install RKE2 using the extracted artifacts (air-gapped installation).
+sudo INSTALL_RKE2_ARTIFACT_PATH="${IRONBARK_INSTALL_DIR}/data/rke2" ./install.sh
+----
+
+===== Configure RKE2
+
+Create the RKE2 configuration file with Cilium CNI.
+The extracted artifacts include a template configuration file:
+
+[source,bash]
+----
+# Copy the template configuration to the RKE2 config directory.
+sudo mkdir -p /etc/rancher/rke2
+sudo cp /tmp/rke2-cilium/config.yaml.template /etc/rancher/rke2/config.yaml
+
+# Review and modify the configuration as needed.
+sudo vi /etc/rancher/rke2/config.yaml
+----
+
+The template configuration includes:
+
+[source,yaml]
+----
+# RKE2 server configuration
+# See: https://docs.rke2.io/install/configuration
+
+# Use Cilium as the CNI (Container Network Interface).
+# Cilium provides eBPF-based networking, security, and observability.
+cni: cilium
+
+# Make kubeconfig readable by non-root users.
+write-kubeconfig-mode: "0644"
+
+# Additional TLS SANs for API server certificate.
+# Add any additional hostnames or IPs that clients will use to access the API server.
+tls-san:
+  - localhost
+  - 127.0.0.1
+  # - your-hostname.example.com
+  # - 192.168.1.100
+----
+
+[NOTE]
+--
+The `cni: cilium` configuration is required to use Cilium.
+Without this setting, RKE2 defaults to Canal (Calico + Flannel).
+The extracted RKE2 artifacts include Cilium container images (`rke2-images-cilium.linux-amd64.tar.zst`).
+--
+
+===== Start RKE2
+
+Enable and start the RKE2 service:
+
+[source,bash]
+----
+# For server node (control plane).
+sudo systemctl enable rke2-server.service
+sudo systemctl start rke2-server.service
+
+# Wait for RKE2 to be ready (may take 1-2 minutes).
+sudo systemctl status rke2-server.service
+
+# Configure kubectl to use the RKE2 cluster.
+export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
+/var/lib/rancher/rke2/bin/kubectl get nodes
+----
+
+[NOTE]
+--
+On a single-node cluster, you may see one Cilium operator pod in `Pending` status.
+This is normal and expected behaviour.
+
+The Cilium operator deployment is configured for 2 replicas (high availability), but both replicas try to bind to the same host ports.
+On a single-node cluster, only one replica can bind to those ports, so the second remains pending.
+
+Check the status:
+[source,bash]
+----
+/var/lib/rancher/rke2/bin/kubectl get deployment -n kube-system cilium-operator
+----
+
+You should see `READY 1/2`, which means 1 of 2 desired replicas is running.
+This is sufficient for full Cilium operation.
+The second replica will automatically schedule when you add a second node to the cluster.
+--
+
+===== Adding Additional Nodes
+
+RKE2 supports two types of nodes:
+
+[horizontal]
+Server nodes:: Control plane + etcd + worker (recommended for small deployments, provides HA for control plane)
+Agent nodes:: Worker only (for larger deployments where you want dedicated control plane nodes)
+
+====== Adding Server Nodes (Control Plane + Worker)
+
+For small deployments, adding additional server nodes provides high availability for the control plane while also serving as workers.
+
+*On the first server node:*
+
+[source,bash]
+----
+# Get the server token (required for additional server nodes to join).
+sudo cat /var/lib/rancher/rke2/server/token
+----
+
+*On each additional server node:*
+
+[source,bash]
+----
+# Extract and install RKE2 using the same process as the first server node.
+# (Use the same ironbark-rke2 image and bootstrap script)
+
+# Create server configuration.
+sudo mkdir -p /etc/rancher/rke2
+sudo tee /etc/rancher/rke2/config.yaml > /dev/null <<EOF
+# RKE2 server configuration (joining existing cluster)
+server: https://<FIRST_SERVER_IP>:9345
+token: <SERVER_TOKEN>
+
+# Use Cilium as the CNI
+cni: cilium
+
+# Make kubeconfig readable by non-root users
+write-kubeconfig-mode: "0644"
+
+# Additional TLS SANs for API server certificate
+tls-san:
+  - localhost
+  - 127.0.0.1
+EOF
+
+# Stage the RKE2 images.
+cd /path/to/rke2-artifacts
+sudo mkdir -p /var/lib/rancher/rke2/agent/images/
+sudo cp rke2-images-cilium.linux-amd64.tar.zst /var/lib/rancher/rke2/agent/images/
+
+# Start the RKE2 server service.
+sudo systemctl enable rke2-server.service
+sudo systemctl start rke2-server.service
+----
+
+Replace `<FIRST_SERVER_IP>` with the IP address of your first server node and `<SERVER_TOKEN>` with the token from `/var/lib/rancher/rke2/server/token`.
+
+[IMPORTANT]
+--
+For production high availability, you should have an odd number of server nodes (3 or 5 recommended) to maintain etcd quorum.
+--
+
+====== Adding Agent Nodes (Worker Only)
+
+For larger deployments where you want dedicated control plane nodes.
+
+*On any server node:*
+
+[source,bash]
+----
+# Get the node token (required for agent nodes to join).
+sudo cat /var/lib/rancher/rke2/server/node-token
+----
+
+*On each agent node:*
+
+[source,bash]
+----
+# Extract and install RKE2 using the same process as the server node.
+# (Use the same ironbark-rke2 image and bootstrap script)
+
+# Create agent configuration.
+sudo mkdir -p /etc/rancher/rke2
+sudo tee /etc/rancher/rke2/config.yaml > /dev/null <<EOF
+# RKE2 agent configuration
+server: https://<SERVER_IP>:9345
+token: <NODE_TOKEN>
+EOF
+
+# Stage the RKE2 images.
+cd /path/to/rke2-artifacts
+sudo mkdir -p /var/lib/rancher/rke2/agent/images/
+sudo cp rke2-images-cilium.linux-amd64.tar.zst /var/lib/rancher/rke2/agent/images/
+
+# Start the RKE2 agent service.
+sudo systemctl enable rke2-agent.service
+sudo systemctl start rke2-agent.service
+----
+
+Replace `<SERVER_IP>` with the IP address of any server node and `<NODE_TOKEN>` with the token from `/var/lib/rancher/rke2/server/node-token`.
+
+====== Verifying Node Addition
+
+Once nodes join, verify on any server node:
+
+[source,bash]
+----
+/var/lib/rancher/rke2/bin/kubectl get nodes
+----
+
+You should see all nodes listed.
+Server nodes will show roles `control-plane,etcd,master` while agent nodes show `<none>`.
+
+The pending Cilium operator pod will automatically schedule to an available node once a second node joins.
+
+===== Initialize Zarf on RKE2
+
+After RKE2 is running, you can initialize Zarf without the K3s component:
+
+[source,bash]
+----
+# Extract Zarf assets (if not already done).
+ironbark generate zarf-bootstrap > extract-zarf.sh
+chmod +x extract-zarf.sh
+./extract-zarf.sh
+
+# Initialize Zarf on the RKE2 cluster.
+cd "${IRONBARK_INSTALL_DIR}/data/zarf/init"
+./zarf init --components=git-server --confirm
 ----
 
 ==== Generating fapolicyd Rules
