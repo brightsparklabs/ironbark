@@ -414,6 +414,13 @@ The extraction script downloads the following artifacts (~461MB total):
 * `sha256sum-amd64.txt` - Checksums for verification
 * `VERSION.json` - RKE2 version information
 
+[IMPORTANT]
+--
+The extracted artifacts include Cilium container images.
+To use Cilium, you must add `cni: cilium` to `/etc/rancher/rke2/config.yaml` (see configuration step below).
+Without this setting, RKE2 will default to Canal (Calico + Flannel) and the Cilium images will not be used.
+--
+
 ===== Install RKE2
 
 After extracting the artifacts, install RKE2 in air-gapped mode:
@@ -428,19 +435,38 @@ sudo INSTALL_RKE2_ARTIFACT_PATH="${IRONBARK_INSTALL_DIR}/data/rke2" ./install.sh
 
 ===== Configure RKE2
 
-Create the RKE2 configuration file:
+Create the RKE2 configuration file with Cilium CNI:
 
 [source,bash]
 ----
 sudo mkdir -p /etc/rancher/rke2
 
-# Example server configuration (customize as needed).
+# RKE2 server configuration with Cilium CNI.
+# The extracted artifacts include Cilium container images.
 sudo tee /etc/rancher/rke2/config.yaml > /dev/null <<EOF
 # RKE2 server configuration
 # See: https://docs.rke2.io/install/configuration
+
+# Use Cilium as the CNI (Container Network Interface).
+# Cilium provides eBPF-based networking, security, and observability.
+cni: cilium
+
+# Make kubeconfig readable by non-root users.
 write-kubeconfig-mode: "0644"
+
+# Additional TLS SANs for API server certificate.
+tls-san:
+  - localhost
+  - 127.0.0.1
 EOF
 ----
+
+[NOTE]
+--
+The `cni: cilium` configuration is required to use Cilium.
+Without this setting, RKE2 defaults to Canal (Calico + Flannel).
+The extracted RKE2 artifacts include Cilium container images (`rke2-images-cilium.linux-amd64.tar.zst`).
+--
 
 ===== Start RKE2
 
