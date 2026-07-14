@@ -105,7 +105,7 @@ func registerSubcommands() {
 	if hasSubcommand(rootCmd, "version") {
 		return
 	}
-	rootCmd.AddCommand(newArgoCmd())
+	rootCmd.AddCommand(newRepoCmd())
 	rootCmd.AddCommand(newInitCmd())
 	rootCmd.AddCommand(newGenerateCmd())
 	rootCmd.AddCommand(newVersionCmd())
