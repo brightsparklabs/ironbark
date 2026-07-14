@@ -252,3 +252,16 @@ release-snapshot: ## Build a snapshot release locally (all platforms, no publish
 .PHONY: release-build
 release-build: ## Build binaries for all platforms (no archives).
 	goreleaser build --snapshot --clean
+
+# ------------------------------------------------------------------------------
+# Development Setup
+# ------------------------------------------------------------------------------
+
+.PHONY: setup-hooks
+setup-hooks: ## Install and configure prek git hooks.
+	@command -v prek >/dev/null 2>&1 || { \
+		echo "Installing prek..."; \
+		go install github.com/j178/prek@latest; \
+	}
+	prek install
+	@echo "Git hooks configured with prek. Pre-commit will auto-format Go code."

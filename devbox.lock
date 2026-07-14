@@ -304,6 +304,54 @@
           "store_path": "/nix/store/12rmq9mj1l1sfkwpc17kbql7m8f1my1c-podman-5.8.4"
         }
       }
+    },
+    "prek@latest": {
+      "last_modified": "2026-06-27T07:37:20Z",
+      "resolved": "github:NixOS/nixpkgs/3d46470bb3030020f7e1361f33514854f5bfa86d#prek",
+      "source": "devbox-search",
+      "version": "0.3.11",
+      "systems": {
+        "aarch64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/2vsnx8qcynb632mlq3bgxw1dmvhgcigc-prek-0.3.11",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/2vsnx8qcynb632mlq3bgxw1dmvhgcigc-prek-0.3.11"
+        },
+        "aarch64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/225kscq0xvqypq9ckl5hjs7d30n1nyzr-prek-0.3.11",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/225kscq0xvqypq9ckl5hjs7d30n1nyzr-prek-0.3.11"
+        },
+        "x86_64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/rayjvavh7dfgba82p3sy6wfncnxd8wmh-prek-0.3.11",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/rayjvavh7dfgba82p3sy6wfncnxd8wmh-prek-0.3.11"
+        },
+        "x86_64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/6mhbmxx3spgizfbfpnqqnjwgi44xk1x4-prek-0.3.11",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/6mhbmxx3spgizfbfpnqqnjwgi44xk1x4-prek-0.3.11"
+        }
+      }
     }
   }
 }
