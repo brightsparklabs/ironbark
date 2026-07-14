@@ -17,7 +17,7 @@
 ARG TARGETARCH
 ARG ARCH=${TARGETARCH:-amd64}
 ARG UBUNTU_IMAGE=ubuntu:24.04
-ARG GOLANG_VERSION=1.26.3
+ARG GOLANG_VERSION=1.26.5
 
 # Tool versions.
 ARG KUBECTL_VERSION=v1.36.1
@@ -72,11 +72,11 @@ RUN curl --fail --silent --show-error --location --retry 3 \
 # package) are a contract with the Go code that ships the
 # `generate zarf-bootstrap` command. Any change to this path or the
 # expected filenames MUST be mirrored in:
-#   - `src/cmd/generate.go`
+#   - `cmd/generate.go`
 #       - `defaultZarfBootstrapSourcePath`
 #       - `zarfBinaryName`
 #       - `zarfInitPackagePrefix` / `zarfInitPackageSuffix`
-#   - `src/resources/resources/zarf-bootstrap.sh.tmpl` (which references the
+#   - `resources/resources/zarf-bootstrap.sh.tmpl` (which references the
 #     same defaults via the rendered template).
 # Otherwise the asset-existence check in `execZarfBootstrap` will fail at
 # runtime even though the assets are present in the image.
@@ -92,7 +92,7 @@ RUN curl --fail --silent --show-error --location --retry 3 \
 # `RUN` under `bash -euo pipefail`, so any package-create failure aborts
 # the build rather than silently producing a partial image.
 WORKDIR /src/zarf/packages
-COPY resources/packages/ .
+COPY zarf-packages/ .
 RUN for package_type in *; do \
       for package_dir in "${package_type}"/*; do \
         /build/bin/zarf package create "${package_dir}" -o "/build/resources/packages/${package_type}/"; \
@@ -126,10 +126,10 @@ RUN apt-get update \
 # the layout of its contents are a contract with the Go code that ships the
 # `generate rke2-bootstrap` command. Any change to this path or the
 # expected filenames MUST be mirrored in:
-#   - `src/cmd/generate.go`
+#   - `cmd/generate.go`
 #       - `defaultRke2BootstrapSourcePath`
 #       - RKE2 artifact filename constants
-#   - `src/resources/resources/rke2-bootstrap.sh.tmpl` (which references the
+#   - `resources/resources/rke2-bootstrap.sh.tmpl` (which references the
 #     same defaults via the rendered template).
 # Otherwise the asset-existence check in `execRke2Bootstrap` will fail at
 # runtime even though the assets are present in the image.
@@ -162,7 +162,7 @@ RUN sha256sum -c --ignore-missing "sha256sum-${ARCH}.txt"
 RUN echo "{\"version\": {\"rke2\": \"${RKE2_VERSION}\"}}" > VERSION.json
 
 # Copy the RKE2 configuration template.
-COPY src/resources/resources/rke2-config.yaml.tmpl config.yaml.template
+COPY resources/resources/rke2-config.yaml.tmpl config.yaml.template
 
 # ------------------------------------------------------------------------------
 # BUILDER STAGE - GOLANG
@@ -194,8 +194,8 @@ WORKDIR /build
 
 # Pre-fetch Go module dependencies in their own layer so they are cached
 # independently of the rest of the source tree.
-COPY src/go.mod src/go.sum ./src/
-RUN cd src && go mod download
+COPY go.mod go.sum ./
+RUN go mod download
 
 # Copy the remaining build inputs the Makefile expects. The container
 # build context intentionally excludes `.git`, so the Makefile's
@@ -206,7 +206,10 @@ RUN cd src && go mod download
 # command-line assignments take precedence over the Makefile's `:=`
 # assignments, so the ldflags receive the correct values.
 COPY Makefile README.adoc ./
-COPY src/ ./src/
+COPY cmd/ ./cmd/
+COPY internal/ ./internal/
+COPY resources/ ./resources/
+COPY main.go ./
 
 RUN make build \
       APP_VERSION=${APP_VERSION} \

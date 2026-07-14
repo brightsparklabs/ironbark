@@ -30,7 +30,6 @@ jobs:
           cache-dependency-path: 'go.sum'
 
       - name: Verify dependencies
-        working-directory: ./src
         run: go mod verify
 
       - name: Run tests with coverage
