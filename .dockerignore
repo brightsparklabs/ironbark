@@ -1,7 +1,18 @@
-build
 # Git metadata is not needed inside the image. Build-time VCS metadata
 # (commit hash, version, build time) is resolved from `git` on the host
 # by the Makefile's `oci-image` target and forwarded to the Dockerfile
 # via `--build-arg`, so shipping `.git/` would only bloat the build
 # context and bust the build cache on every commit.
 .git
+
+# Build artifacts and output directories.
+build/
+dist/
+coverage.out
+
+# Go binaries.
+ironbark
+
+# Development environment files.
+.devbox/
+devbox.lock
