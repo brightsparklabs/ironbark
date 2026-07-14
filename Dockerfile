@@ -280,6 +280,10 @@ COPY --from=builder-golang /build/VERSION.json .
 
 ENTRYPOINT ["/app/bin/ironbark"]
 
+# Expose API server port (8080) and Git proxy port (3000).
+# These are used when running Ironbark in serve mode.
+EXPOSE 8080 3000
+
 # ------------------------------------------------------------------------------
 # FINAL STAGE - K3S VARIANT (DEFAULT)
 # ------------------------------------------------------------------------------

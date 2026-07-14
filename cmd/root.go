@@ -112,6 +112,7 @@ func registerSubcommands() {
 	rootCmd.AddCommand(newDebugCmd())
 	rootCmd.AddCommand(newDocsCmd())
 	rootCmd.AddCommand(newExecCmd())
+	rootCmd.AddCommand(newServeCmd())
 }
 
 // hasSubcommand returns true if `parent` already has a direct child
