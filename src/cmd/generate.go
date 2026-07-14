@@ -732,10 +732,10 @@ func execRke2Bootstrap(out io.Writer, data rke2BootstrapTemplateData) error {
 	// source path before emitting a script that promises to extract them.
 	if err := defaultRke2AssetsPresent(data.SourcePath); err != nil {
 		return NewUserError(
-			"RKE2 assets not found. This command is only available in the ironbark-rke2 container variant.\n" +
-			"Please use the RKE2 variant image:\n\n" +
-			"  podman run --rm brightsparklabs/ironbark-rke2:latest generate rke2-bootstrap > extract-rke2.sh\n" +
-			"\nOriginal error: %v", err)
+			"RKE2 assets not found. This command is only available in the ironbark-rke2 container variant.\n"+
+				"Please use the RKE2 variant image:\n\n"+
+				"  podman run --rm brightsparklabs/ironbark-rke2:latest generate rke2-bootstrap > extract-rke2.sh\n"+
+				"\nOriginal error: %v", err)
 	}
 
 	data.GeneratedAt = time.Now().UTC().Format(time.RFC3339)

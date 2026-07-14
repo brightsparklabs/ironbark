@@ -144,6 +144,14 @@ oci-image-rke2-save: oci-image-rke2 ## Save RKE2 variant OCI images.
 # - Buildx provides native multi-arch build support
 # - Consistent with existing CI/CD patterns
 # - Podman is still preferred for local development (see devbox.json)
+#
+# Note on CI/CD vs Local Development:
+# - Local development uses devbox (provides Go, Podman, govulncheck, etc.)
+# - GitHub Actions uses standard setup-go action (no devbox dependency)
+# - Makefile targets work in both environments:
+#   * Local: devbox provides govulncheck
+#   * CI: 'go install govulncheck@latest' runs on-demand (fast, cached)
+# - This separation keeps CI simple while providing rich local dev environment
 
 .PHONY: oci-image-buildx
 oci-image-buildx: oci-image-k3s-buildx oci-image-rke2-buildx ## Build both K3s and RKE2 multi-arch OCI images.
@@ -202,3 +210,29 @@ oci-image-rke2-push: ## Build and push RKE2 variant multi-arch OCI image to Dock
 		--push \
 		-t brightsparklabs/$(APP_NAME)-rke2:$(APP_VERSION) \
 		-t brightsparklabs/$(APP_NAME)-rke2:latest .
+
+.PHONY: test-coverage
+test-coverage: ## Run unit tests with coverage reporting.
+	cd src \
+		&& go test -v -race -coverprofile=coverage.out ./... \
+		&& go tool cover -func=coverage.out \
+		&& echo "Coverage summary:" \
+		&& go tool cover -func=coverage.out | tail -1
+
+.PHONY: check-format
+check-format: ## Check if code is formatted correctly (fails if not).
+	cd src \
+		&& if [ "$$(gofmt -l . | wc -l)" -gt 0 ]; then \
+			echo "The following files need formatting:"; \
+			gofmt -l .; \
+			exit 1; \
+		fi
+
+.PHONY: check-vuln
+check-vuln: ## Run vulnerability scanner (govulncheck).
+	cd src \
+		&& go install golang.org/x/vuln/cmd/govulncheck@latest \
+		&& govulncheck ./...
+
+.PHONY: check
+check: check-format check-vuln ## Run all checks (format, vulnerabilities).
