@@ -63,20 +63,3 @@ jobs:
           name: ironbark-binary
           path: build/bin/ironbark
           retention-days: 7
-
-  security-scan:
-    name: Security Scan
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: 'src/go.mod'
-          cache-dependency-path: 'src/go.sum'
-
-      - name: Run vulnerability check
-        run: make check-vuln
