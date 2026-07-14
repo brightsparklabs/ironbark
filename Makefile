@@ -131,3 +131,74 @@ oci-image-rke2-save: oci-image-rke2 ## Save RKE2 variant OCI images.
 	docker save \
 		brightsparklabs/$(APP_NAME)-rke2:$(APP_VERSION) \
 		-o build/images/oci-brightsparklabs-$(APP_NAME)-rke2-$(APP_VERSION).tar
+
+# ------------------------------------------------------------------------------
+# Multi-arch OCI Image Targets (using buildx)
+# ------------------------------------------------------------------------------
+# These targets use Docker buildx to build multi-architecture images.
+# Buildx is required for publishing to container registries with multi-arch
+# support (linux/amd64 and linux/arm64).
+#
+# Why buildx instead of Podman:
+# - GitHub Actions runners use Docker by default
+# - Buildx provides native multi-arch build support
+# - Consistent with existing CI/CD patterns
+# - Podman is still preferred for local development (see devbox.json)
+
+.PHONY: oci-image-buildx
+oci-image-buildx: oci-image-k3s-buildx oci-image-rke2-buildx ## Build both K3s and RKE2 multi-arch OCI images.
+
+.PHONY: oci-image-k3s-buildx
+oci-image-k3s-buildx: ## Build K3s variant multi-arch OCI image (linux/amd64,linux/arm64).
+	docker buildx build \
+		--target ironbark-k3s \
+		--build-arg APP_VERSION=$(APP_VERSION) \
+		--build-arg BUILD_DATE=$(BUILD_DATE) \
+		--build-arg BUILD_TIME_UTC=$(BUILD_TIME_UTC) \
+		--build-arg VCS_REF=$(VCS_REF) \
+		--platform linux/amd64,linux/arm64 \
+		--load \
+		-t brightsparklabs/$(APP_NAME):$(APP_VERSION) \
+		-t brightsparklabs/$(APP_NAME):latest .
+
+.PHONY: oci-image-rke2-buildx
+oci-image-rke2-buildx: ## Build RKE2 variant multi-arch OCI image (linux/amd64,linux/arm64).
+	docker buildx build \
+		--target ironbark-rke2 \
+		--build-arg APP_VERSION=$(APP_VERSION) \
+		--build-arg BUILD_DATE=$(BUILD_DATE) \
+		--build-arg BUILD_TIME_UTC=$(BUILD_TIME_UTC) \
+		--build-arg VCS_REF=$(VCS_REF) \
+		--platform linux/amd64,linux/arm64 \
+		--load \
+		-t brightsparklabs/$(APP_NAME)-rke2:$(APP_VERSION) \
+		-t brightsparklabs/$(APP_NAME)-rke2:latest .
+
+.PHONY: oci-image-push
+oci-image-push: oci-image-k3s-push oci-image-rke2-push ## Build and push both K3s and RKE2 multi-arch images to DockerHub.
+
+.PHONY: oci-image-k3s-push
+oci-image-k3s-push: ## Build and push K3s variant multi-arch OCI image to DockerHub.
+	docker buildx build \
+		--target ironbark-k3s \
+		--build-arg APP_VERSION=$(APP_VERSION) \
+		--build-arg BUILD_DATE=$(BUILD_DATE) \
+		--build-arg BUILD_TIME_UTC=$(BUILD_TIME_UTC) \
+		--build-arg VCS_REF=$(VCS_REF) \
+		--platform linux/amd64,linux/arm64 \
+		--push \
+		-t brightsparklabs/$(APP_NAME):$(APP_VERSION) \
+		-t brightsparklabs/$(APP_NAME):latest .
+
+.PHONY: oci-image-rke2-push
+oci-image-rke2-push: ## Build and push RKE2 variant multi-arch OCI image to DockerHub.
+	docker buildx build \
+		--target ironbark-rke2 \
+		--build-arg APP_VERSION=$(APP_VERSION) \
+		--build-arg BUILD_DATE=$(BUILD_DATE) \
+		--build-arg BUILD_TIME_UTC=$(BUILD_TIME_UTC) \
+		--build-arg VCS_REF=$(VCS_REF) \
+		--platform linux/amd64,linux/arm64 \
+		--push \
+		-t brightsparklabs/$(APP_NAME)-rke2:$(APP_VERSION) \
+		-t brightsparklabs/$(APP_NAME)-rke2:latest .
