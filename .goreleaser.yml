@@ -6,12 +6,11 @@ version: 2
 
 before:
   hooks:
-    - sh -c "cd src && go mod download"
-    - sh -c "cd src && go mod verify"
+    - go mod download
+    - go mod verify
 
 builds:
   - id: ironbark
-    dir: ./src
     main: .
     binary: ironbark
     env:

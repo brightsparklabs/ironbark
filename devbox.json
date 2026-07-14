@@ -16,7 +16,7 @@
     ],
     "scripts": {
       "test": [
-        "cd src && go test ./..."
+        "go test ./..."
       ],
       "build": [
         "make build"

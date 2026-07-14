@@ -34,14 +34,16 @@ GO_LDFLAGS := \
 
 # Files that the Go binary depends on. Built dynamically via `find` so new
 # source files (Go sources, embedded resources, go.mod, go.sum) are picked
-# up automatically without further Makefile edits. Anything inside `src/`
+# up automatically without further Makefile edits. Anything inside the repo
 # that is not a test file (`*_test.go`) is treated as a build input.
-GO_SOURCES := $(shell find src \
+GO_SOURCES := $(shell find . \
   -type f \
   \( -name '*.go' -o -name 'go.mod' -o -name 'go.sum' \) \
   -not -name '*_test.go' \
+  -not -path './dist/*' \
+  -not -path './build/*' \
   2>/dev/null)
-EMBED_SOURCES := $(shell find src/resources/resources -type f 2>/dev/null)
+EMBED_SOURCES := $(shell find resources/resources -type f 2>/dev/null)
 BUILD_INPUTS := $(GO_SOURCES) $(EMBED_SOURCES)
 
 .PHONY: help
@@ -56,13 +58,11 @@ help: ## Display this help section.
 
 .PHONY: test
 test: ## Run unit tests.
-	cd src \
-		&& go test ./...
+	go test ./...
 
 .PHONY: format
 format: ## Format the codebase.
-	cd src \
-		&& gofmt -w .
+	gofmt -w .
 
 .PHONY: clean
 clean: ## Remove the build artifacts.
@@ -79,16 +79,15 @@ build/bin/ironbark: $(BUILD_INPUTS) README.adoc
 	mkdir -p build/bin
 	# Drop the repo-root `README.adoc` into the embedded resources
 	# directory so it is picked up by the `//go:embed resources/*`
-	# in `src/resources/resources.go`. The copy is gitignored and is
+	# in `resources/resources.go`. The copy is gitignored and is
 	# removed after `go build` so the working tree stays clean. If
 	# `go build` is invoked standalone (without `make`), the README
 	# is simply absent from the embed and a fallback message is
 	# returned by `ironbark docs`.
-	@cp README.adoc src/resources/resources/README.adoc
-	cd src \
-		&& trap 'rm -f resources/resources/README.adoc' EXIT \
+	@cp README.adoc resources/resources/README.adoc
+	trap 'rm -f resources/resources/README.adoc' EXIT \
 		&& go mod download \
-		&& CGO_ENABLED=0 GOOS=linux go build -ldflags "$(GO_LDFLAGS)" -o ../build/bin/ironbark .
+		&& CGO_ENABLED=0 GOOS=linux go build -ldflags "$(GO_LDFLAGS)" -o build/bin/ironbark .
 
 .PHONY: oci-image
 oci-image: oci-image-k3s oci-image-rke2 ## Build both K3s and RKE2 variant OCI images.
@@ -213,25 +212,22 @@ oci-image-rke2-push: ## Build and push RKE2 variant multi-arch OCI image to Dock
 
 .PHONY: test-coverage
 test-coverage: ## Run unit tests with coverage reporting.
-	cd src \
-		&& go test -v -race -coverprofile=coverage.out ./... \
+	go test -v -race -coverprofile=coverage.out ./... \
 		&& go tool cover -func=coverage.out \
 		&& echo "Coverage summary:" \
 		&& go tool cover -func=coverage.out | tail -1
 
 .PHONY: check-format
 check-format: ## Check if code is formatted correctly (fails if not).
-	cd src \
-		&& if [ "$$(gofmt -l . | wc -l)" -gt 0 ]; then \
-			echo "The following files need formatting:"; \
-			gofmt -l .; \
-			exit 1; \
-		fi
+	if [ "$$(gofmt -l . | wc -l)" -gt 0 ]; then \
+		echo "The following files need formatting:"; \
+		gofmt -l .; \
+		exit 1; \
+	fi
 
 .PHONY: check-vuln
 check-vuln: ## Run vulnerability scanner (govulncheck).
-	cd src \
-		&& go install golang.org/x/vuln/cmd/govulncheck@latest \
+	go install golang.org/x/vuln/cmd/govulncheck@latest \
 		&& govulncheck ./...
 
 .PHONY: check-release
