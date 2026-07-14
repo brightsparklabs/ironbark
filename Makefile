@@ -234,5 +234,21 @@ check-vuln: ## Run vulnerability scanner (govulncheck).
 		&& go install golang.org/x/vuln/cmd/govulncheck@latest \
 		&& govulncheck ./...
 
+.PHONY: check-release
+check-release: ## Validate GoReleaser configuration.
+	goreleaser check
+
 .PHONY: check
-check: check-format check-vuln ## Run all checks (format, vulnerabilities).
+check: check-format check-vuln check-release ## Run all checks (format, vulnerabilities, release config).
+
+# ------------------------------------------------------------------------------
+# GoReleaser Targets
+# ------------------------------------------------------------------------------
+
+.PHONY: release-snapshot
+release-snapshot: ## Build a snapshot release locally (all platforms, no publish).
+	goreleaser release --snapshot --clean
+
+.PHONY: release-build
+release-build: ## Build binaries for all platforms (no archives).
+	goreleaser build --snapshot --clean

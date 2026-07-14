@@ -5,7 +5,8 @@
     "git@latest",
     "podman@latest",
     "govulncheck@latest",
-    "github-cli@latest"
+    "github-cli@latest",
+    "goreleaser@latest"
   ],
   "shell": {
     "init_hook": [
