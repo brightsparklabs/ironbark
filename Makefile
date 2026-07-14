@@ -17,6 +17,10 @@ SHELL := bash
 # Use `:=` (immediate evaluation) so every `$(shell ...)` is invoked exactly
 # once when the Makefile is parsed. This guarantees that all derived values
 # (e.g. `GO_LDFLAGS`) see consistent build metadata.
+
+# Limit CPU usage for GoReleaser builds to prevent CPU saturation (can be overridden: GOMAXPROCS=4 make release-build)
+GOMAXPROCS ?= $(shell echo $$(( $$(nproc) / 2 )))
+
 APP_NAME := ironbark
 APP_VERSION := $(shell git describe --always --dirty 2>/dev/null || echo dev)
 # `BUILD_DATE` is used by the Docker `LABEL` and is in local time with offset.
@@ -243,11 +247,11 @@ check: check-format check-vuln check-release ## Run all checks (format, vulnerab
 
 .PHONY: release-snapshot
 release-snapshot: ## Build a snapshot release locally (all platforms, no publish).
-	goreleaser release --snapshot --clean
+	GOMAXPROCS=$(GOMAXPROCS) goreleaser release --snapshot --clean
 
 .PHONY: release-build
 release-build: ## Build binaries for all platforms (no archives).
-	goreleaser build --snapshot --clean
+	GOMAXPROCS=$(GOMAXPROCS) goreleaser build --snapshot --clean
 
 # ------------------------------------------------------------------------------
 # Development Setup
