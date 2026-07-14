@@ -1,0 +1,29 @@
+{
+  "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.17.5/.schema/devbox.schema.json",
+  "packages": [
+    "go@1.26.4",
+    "git@latest",
+    "podman@latest",
+    "govulncheck@latest",
+    "github-cli@latest",
+    "goreleaser@latest",
+    "prek@latest"
+  ],
+  "shell": {
+    "init_hook": [
+      "echo 'Welcome to Ironbark devbox!' > /dev/null",
+      "make setup-hooks > /dev/null 2>&1 || echo 'Note: Run make setup-hooks to enable git hooks'"
+    ],
+    "scripts": {
+      "test": [
+        "go test ./..."
+      ],
+      "build": [
+        "make build"
+      ],
+      "format": [
+        "make format"
+      ]
+    }
+  }
+}

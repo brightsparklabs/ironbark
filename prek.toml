@@ -1,0 +1,18 @@
+# Prek configuration for Ironbark
+# https://github.com/j178/prek
+#
+# Installation:
+#   make setup-hooks
+#
+# This will install prek and configure git hooks automatically.
+
+[[repos]]
+repo = "local"
+
+[[repos.hooks]]
+id = "go-fmt"
+name = "Format Go code"
+entry = "make format"
+language = "system"
+files = '\.go$'
+pass_filenames = false

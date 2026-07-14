@@ -1,0 +1,53 @@
+##
+ # Zarf package for the Ironbark canary application.
+ # ______________________________________________________________________________
+ #
+ # Maintained by brightSPARK Labs.
+ # www.brightsparklabs.com
+ ##
+
+# This package mirrors the upstream `cowboysysop/whoami` Helm chart and its
+# backing container image into the cluster's internal OCI registry, so that
+# ArgoCD (managed by Ironbark) can deploy it without reaching out to the
+# internet.
+#
+# `cowboysysop/whoami` packages Traefik Labs' tiny `whoami` Go webserver
+# (~9 MB) which prints OS info and HTTP request details. It is used here
+# as a small, airgap-friendly canary application. Switching the App-of-Apps
+# Helm values between `values-blue.yaml` and `values-green.yaml` (which
+# differ only in `replicaCount`) produces a visible change in the running
+# pods, useful for demonstrating Ironbark's GitOps blue/green flow.
+#
+# The chart's only sub-chart dependency (`cowboysysop/common`) is bundled
+# inside the OCI tarball itself, so it does not need to be mirrored separately.
+#
+# NOTE: The `images` block can be regenerated via:
+#       `zarf -l debug prepare find-images`.
+#
+# The chart itself is mirrored to the cluster's internal OCI registry
+# automatically by Ironbark (see AFC-32 and `src/internal/zarf/charts.go`);
+# it does NOT need to be listed under `images` manually.
+
+kind: ZarfPackageConfig
+metadata:
+  name: ironbark-canary-app
+  version: 0.0.1
+  description: Ironbark canary application. Mirrors the upstream `cowboysysop/whoami` Helm chart for use as an airgap-friendly demo deployment.
+
+components:
+  - name: ironbark-canary-app-oci
+    required: true
+    charts:
+      - name: whoami
+        # IMPORTANT: Keep this aligned with
+        # `src/resources/resources/repos/ironbark-argocd-app-of-apps/chart/values.yaml`.
+        version: 6.0.0
+        namespace: bsl-ironbark-canary-app-oci
+        url: oci://ghcr.io/cowboysysop/charts/whoami
+    images:
+      # Container image used by `cowboysysop/whoami` 6.0.0 (chart appVersion 1.11.0).
+      # Pinned to a specific tag rather than `latest` for reproducible airgap builds.
+      - docker.io/traefik/whoami:v1.11.0
+      # Test image used by the chart's `helm test` hook. Mirrored so that
+      # `helm test` works in disconnected environments.
+      - ghcr.io/cowboysysop/pytest:1.2.0

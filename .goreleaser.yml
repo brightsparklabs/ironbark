@@ -1,0 +1,73 @@
+# GoReleaser configuration for Ironbark
+# Automatically releases multi-platform binaries on push to master branch.
+# Uses git describe for versioning (no manual tags required).
+
+version: 2
+
+before:
+  hooks:
+    - go mod download
+    - go mod verify
+
+builds:
+  - id: ironbark
+    main: .
+    binary: ironbark
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X brightsparklabs.com/ironbark/internal/version.Version={{.Version}}
+      - -X brightsparklabs.com/ironbark/internal/version.Commit={{.FullCommit}}
+      - -X brightsparklabs.com/ironbark/internal/version.BuildTime={{.Date}}
+
+archives:
+  - id: ironbark
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- .Arch }}
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    files:
+      - README.adoc
+      - LICENSE
+
+checksum:
+  name_template: 'checksums.txt'
+
+# Use git describe for version when not building from a tag.
+snapshot:
+  version_template: "{{ .Version }}"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - 'Merge pull request'
+      - 'Merge branch'
+
+# Release settings - configured for automatic releases on master.
+# GitHub automatically marks the most recent release as "latest".
+release:
+  github:
+    owner: brightsparklabs
+    name: ironbark
+  name_template: "Release {{.Version}}"
+  prerelease: auto
+  make_latest: true

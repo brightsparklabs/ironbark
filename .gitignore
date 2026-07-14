@@ -1,3 +1,7 @@
+/build/
+# Goreleaser output.
+/dist/
+
 # Created by https://www.toptal.com/developers/gitignore/api/vim,go
 # Edit at https://www.toptal.com/developers/gitignore?templates=vim,go
 
@@ -47,3 +51,10 @@ tags
 
 # End of https://www.toptal.com/developers/gitignore/api/vim,go
 
+# Build-time copy of the repo-root `README.adoc`. The Makefile drops
+# it into `src/resources/resources/` immediately before `go build` so
+# the existing `resources` package picks it up via its embedded
+# filesystem (which surfaces it via `ironbark docs`). The copy is
+# removed again by a `trap` after the build so it never sits in the
+# working tree long-term.
+src/resources/resources/README.adoc

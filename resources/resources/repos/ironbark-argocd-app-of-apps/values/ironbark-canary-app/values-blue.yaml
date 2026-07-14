@@ -1,0 +1,19 @@
+##
+ # Helm values for the Ironbark canary application - "blue" variant.
+ # ______________________________________________________________________________
+ #
+ # Maintained by brightSPARK Labs.
+ # www.brightsparklabs.com
+ ##
+
+# These values are applied on top of the upstream `cowboysysop/whoami`
+# chart's defaults. Switching the App-of-Apps `values.path` between this
+# file and `values-green.yaml` produces a visible change in the running
+# cluster, used to demonstrate Ironbark's GitOps blue/green flow.
+#
+# To observe the change after a sync:
+#   `kubectl get pods -n ironbark-canary-app -l app.kubernetes.io/name=whoami`
+# The pod count will track the `replicaCount` value below.
+
+# Pod replicas served for the "blue" variant.
+replicaCount: 1

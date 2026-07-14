@@ -1,0 +1,58 @@
+##
+ # Helm values for 'ironbark-app-of-apps' chart.
+ # ______________________________________________________________________________
+ #
+ # Maintained by brightSPARK Labs.
+ # www.brightsparklabs.com
+ ##
+
+applications:
+  - name: ironbark-canary-app
+    namespace: bsl-ironbark-canary-app
+    chart:
+      # Chart name as found in the OCI registry.
+      # This will be appended to the `config.spec.source.ociUrl`.
+      # The canary application is the upstream `cowboysysop/whoami` chart,
+      # mirrored into the cluster's internal OCI registry by the
+      # `ironbark-canary-app` Zarf mirror package, where Ironbark
+      # publishes mirrored charts under
+      # `ironbark/charts/<upstream-host-and-path>/<chart>` (see AFC-32).
+      name: ironbark/charts/ghcr.io/cowboysysop/charts/whoami
+      # Chart version to deploy.
+      # IMPORTANT: Keep this aligned with `resources/packages/mirror/ironbark-canary-app/zarf.yaml`.
+      targetRevision: 6.0.0
+
+    values:
+      # Path to the Helm values YAML file to use.
+      path: values/ironbark-canary-app/values-blue.yaml
+      # Example alternative:
+      #path: values/ironbark-canary-app/values-green.yaml
+
+      # Version of the repo to checkout.
+      targetRevision: HEAD
+
+      # Use a custom repo instead of default (`config.spec.source.valuesRepoUrl`).
+      #repo: http://zarf-gitea-http.zarf.svc.cluster.local:3000/zarf-git-user/helm-chart-values.git
+
+      # File parameters (equivalent to helm --set-file).
+      # Allows setting Helm values from file contents.
+      #fileParameters:
+      #  # Equivalent to `helm --set-file config.json=values/ironbark-canary-app/config.json`.
+      #  - name: config.json
+      #    path: values/ironbark-canary-app/config.json
+      #  # Equivalent to `helm --set-file tls.cert=values/ironbark-canary-app/cert.pem`.
+      #  - name: tls.cert
+      #    path: values/ironbark-canary-app/cert.pem
+
+config:
+  spec:
+    destination:
+      server: https://kubernetes.default.svc
+    source:
+      # URL of OCI registry. NOTE: Do *not* include 'oci://' prefix.
+      ociUrl: internal-tls-proxy.bsl-ironbark-internal-tls-proxy.svc.cluster.local
+      # TODO: Switch to internal once forcing HTTP works.
+      #ociUrl: zarf-docker-registry.zarf.svc.cluster.local:5000
+
+      # Default git repository containing Helm values YAML files for the deployed charts.
+      valuesRepoURL: http://zarf-gitea-http.zarf.svc.cluster.local:3000/zarf-git-user/ironbark-argocd-app-of-apps.git
