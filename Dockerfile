@@ -150,6 +150,11 @@ RUN curl --fail --silent --show-error --location --retry 3 \
       --output "rke2-images-cilium.linux-${ARCH}.tar.zst" \
       "https://github.com/rancher/rke2/releases/download/${RKE2_VERSION}/rke2-images-cilium.linux-${ARCH}.tar.zst"
 
+# Download RKE2 core image tarball (contains runtime and essential images).
+RUN curl --fail --silent --show-error --location --retry 3 \
+      --output "rke2-images-core.linux-${ARCH}.tar.zst" \
+      "https://github.com/rancher/rke2/releases/download/${RKE2_VERSION}/rke2-images-core.linux-${ARCH}.tar.zst"
+
 # Download checksums for verification.
 RUN curl --fail --silent --show-error --location --retry 3 \
       --output "sha256sum-${ARCH}.txt" \
