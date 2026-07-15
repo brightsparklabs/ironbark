@@ -28,7 +28,7 @@ const (
 
 	// defaultAPITimeout is the default timeout in seconds for API server
 	// operations (read, write, idle).
-	defaultAPITimeout = 30
+	defaultAPITimeout = 300
 
 	// defaultGitTimeout is the default timeout in seconds for Git proxy
 	// operations (read, write, idle). Git operations can be slow.
