@@ -14,6 +14,8 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"brightsparklabs.com/ironbark/internal/gitproxy"
 )
 
 // -----------------------------------------------------------------------------
@@ -24,49 +26,67 @@ import (
 // PUBLIC FUNCTIONS
 // -----------------------------------------------------------------------------
 
-// Serve starts the HTTP API server on the specified port and blocks until
-// the context is cancelled or an error occurs.
+// Serve starts both the HTTP API server and Git proxy server on their
+// respective ports and blocks until the context is cancelled or an error occurs.
 //
-// The server exposes REST endpoints under /ironbark/api/v1/ for cluster
+// The API server exposes REST endpoints under /ironbark/api/v1/ for cluster
 // initialisation, repository management, kubeconfig handling, and diagnostics.
 //
-// Timeout parameters control request handling:
-//   - readTimeoutSecs: Maximum seconds for reading request (0 = no timeout)
-//   - writeTimeoutSecs: Maximum seconds for writing response (0 = no timeout)
-//   - idleTimeoutSecs: Maximum seconds to wait for next request (0 = no timeout)
-func Serve(ctx context.Context, apiPort int, gitPort int, readTimeoutSecs int, writeTimeoutSecs int, idleTimeoutSecs int) error {
+// The Git proxy server accepts Git HTTP protocol requests and forwards them
+// to the internal Gitea server.
+//
+// Timeout parameters control server operations:
+//   - apiTimeoutSecs: Timeout for API server operations (read, write, idle)
+//   - gitTimeoutSecs: Timeout for Git proxy operations (read, write, idle)
+func Serve(ctx context.Context, apiPort int, gitPort int, apiTimeoutSecs int, gitTimeoutSecs int) error {
 	mux := http.NewServeMux()
 
 	// Register API routes.
 	registerRoutes(mux)
 
 	addr := fmt.Sprintf(":%d", apiPort)
-	server := &http.Server{
+	timeout := time.Duration(apiTimeoutSecs) * time.Second
+	apiServer := &http.Server{
 		Addr:         addr,
 		Handler:      mux,
-		ReadTimeout:  time.Duration(readTimeoutSecs) * time.Second,
-		WriteTimeout: time.Duration(writeTimeoutSecs) * time.Second,
-		IdleTimeout:  time.Duration(idleTimeoutSecs) * time.Second,
+		ReadTimeout:  timeout,
+		WriteTimeout: timeout,
+		IdleTimeout:  timeout,
 	}
 
-	// Start server in goroutine so we can handle graceful shutdown.
-	errChan := make(chan error, 1)
+	// Start both servers in goroutines.
+	errChan := make(chan error, 2)
+
+	// Start API server.
 	go func() {
 		slog.Info("Starting API server", "address", addr)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			errChan <- err
+		if err := apiServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			errChan <- fmt.Errorf("API server error: %w", err)
+		}
+	}()
+
+	// Start Git proxy server.
+	go func() {
+		if err := gitproxy.Serve(ctx, gitPort, gitTimeoutSecs); err != nil {
+			errChan <- fmt.Errorf("Git proxy error: %w", err)
 		}
 	}()
 
 	// Wait for context cancellation or server error.
 	select {
 	case <-ctx.Done():
-		slog.Info("Shutting down API server")
+		slog.Info("Shutting down servers")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		return server.Shutdown(shutdownCtx)
+
+		// Shutdown API server (Git proxy will stop via context).
+		if err := apiServer.Shutdown(shutdownCtx); err != nil {
+			return fmt.Errorf("error shutting down API server: %w", err)
+		}
+
+		return nil
 	case err := <-errChan:
-		return fmt.Errorf("server error: %w", err)
+		return err
 	}
 }
 
