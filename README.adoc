@@ -291,19 +291,19 @@ applications:
       name: ironbark/charts/ghcr.io/cowboysysop/charts/whoami
       targetRevision: 6.0.0
     values:
-      path: values/whoami/values.yaml
+      path: apps/whoami/values.yaml
       targetRevision: HEAD
       # Optional: Set Helm values from file contents (equivalent to `helm --set-file`).
       fileParameters:
-        # Equivalent to `helm --set-file config.json=values/whoami/config.json`.
+        # Equivalent to `helm --set-file config.json=apps/whoami/config.json`.
         - name: config.json
-          path: values/whoami/config.json
-        # Equivalent to `helm --set-file tls.cert=values/whoami/cert.pem`.
+          path: apps/whoami/config.json
+        # Equivalent to `helm --set-file tls.cert=apps/whoami/cert.pem`.
         - name: tls.cert
-          path: values/whoami/cert.pem
+          path: apps/whoami/cert.pem
 ----
 
-. Create values file at `values/whoami/values.yaml`:
+. Create values file at `apps/whoami/values.yaml`:
 +
 [source,yaml]
 ----
