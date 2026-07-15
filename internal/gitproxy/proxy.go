@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"sync"
 	"time"
 
 	"brightsparklabs.com/ironbark/internal/zarf"
@@ -36,41 +37,9 @@ import (
 func Serve(ctx context.Context, gitPort int, timeoutSecs int) error {
 	slog.Info("Starting Git proxy server", "port", gitPort)
 
-	// Create a tunnel to Gitea.
-	zarfCluster, err := zarf.GetCluster(ctx)
-	if err != nil {
-		return fmt.Errorf("could not get Zarf cluster: %w", err)
-	}
-
-	gitServerInfo, err := zarf.GetGitServerInfo(ctx)
-	if err != nil {
-		return fmt.Errorf("could not get Git server info: %w", err)
-	}
-
-	tunnel, err := zarfCluster.NewTunnel(zarfstate.ZarfNamespaceName, zarfcluster.SvcResource, zarfcluster.ZarfGitServerName, "", 0, zarfcluster.ZarfGitServerPort)
-	if err != nil {
-		return fmt.Errorf("could not create Gitea tunnel: %w", err)
-	}
-
-	_, err = tunnel.Connect(ctx)
-	if err != nil {
-		return fmt.Errorf("could not connect to Gitea tunnel: %w", err)
-	}
-	defer tunnel.Close()
-
-	tunnelURLs := tunnel.HTTPEndpoints()
-	if len(tunnelURLs) == 0 {
-		return fmt.Errorf("no tunnel HTTP endpoints available")
-	}
-
-	tunnelURL := tunnelURLs[0]
-	slog.Info("Created Gitea tunnel", "tunnelURL", tunnelURL)
-
-	// Create the reverse proxy using the tunnel.
-	proxy, err := createGiteaProxy(tunnelURL, gitServerInfo)
-	if err != nil {
-		return fmt.Errorf("failed to create Gitea proxy: %w", err)
-	}
+	// Create a lazy proxy that connects on first request.
+	// This allows the server to start even if no cluster is available.
+	proxy := createLazyGiteaProxy(ctx)
 
 	// Create HTTP server with the proxy handler.
 	addr := fmt.Sprintf(":%d", gitPort)
@@ -107,6 +76,114 @@ func Serve(ctx context.Context, gitPort int, timeoutSecs int) error {
 // -----------------------------------------------------------------------------
 // PRIVATE FUNCTIONS
 // -----------------------------------------------------------------------------
+
+// createLazyGiteaProxy creates a handler that lazily creates the Gitea tunnel
+// and proxy on the first request. This allows the server to start even if no
+// cluster is available.
+func createLazyGiteaProxy(ctx context.Context) http.Handler {
+	var (
+		proxyMu  sync.RWMutex
+		proxy    *httputil.ReverseProxy
+		tunnel   *zarfcluster.Tunnel
+		proxyErr error
+		created  bool
+	)
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Check if proxy is already created.
+		proxyMu.RLock()
+		if created {
+			proxyMu.RUnlock()
+			if proxyErr != nil {
+				http.Error(w, fmt.Sprintf("Git proxy unavailable: %v", proxyErr), http.StatusServiceUnavailable)
+				return
+			}
+			proxy.ServeHTTP(w, r)
+			return
+		}
+		proxyMu.RUnlock()
+
+		// Create proxy (first request only).
+		proxyMu.Lock()
+		defer proxyMu.Unlock()
+
+		// Check again in case another goroutine created it.
+		if created {
+			if proxyErr != nil {
+				http.Error(w, fmt.Sprintf("Git proxy unavailable: %v", proxyErr), http.StatusServiceUnavailable)
+				return
+			}
+			proxy.ServeHTTP(w, r)
+			return
+		}
+
+		// Mark as created (even if it fails, we don't want to retry on every request).
+		created = true
+
+		// Create the tunnel and proxy.
+		slog.Info("Creating Gitea tunnel (first request)")
+
+		// Get cluster.
+		zarfCluster, err := zarf.GetCluster(ctx)
+		if err != nil {
+			proxyErr = fmt.Errorf("could not get Zarf cluster: %w", err)
+			slog.Error("Failed to create Gitea proxy", "error", proxyErr)
+			http.Error(w, fmt.Sprintf("Git proxy unavailable: %v", proxyErr), http.StatusServiceUnavailable)
+			return
+		}
+
+		// Get Git server info.
+		gitServerInfo, err := zarf.GetGitServerInfo(ctx)
+		if err != nil {
+			proxyErr = fmt.Errorf("could not get Git server info: %w", err)
+			slog.Error("Failed to create Gitea proxy", "error", proxyErr)
+			http.Error(w, fmt.Sprintf("Git proxy unavailable: %v", proxyErr), http.StatusServiceUnavailable)
+			return
+		}
+
+		// Create tunnel.
+		tunnel, err = zarfCluster.NewTunnel(zarfstate.ZarfNamespaceName, zarfcluster.SvcResource, zarfcluster.ZarfGitServerName, "", 0, zarfcluster.ZarfGitServerPort)
+		if err != nil {
+			proxyErr = fmt.Errorf("could not create Gitea tunnel: %w", err)
+			slog.Error("Failed to create Gitea proxy", "error", proxyErr)
+			http.Error(w, fmt.Sprintf("Git proxy unavailable: %v", proxyErr), http.StatusServiceUnavailable)
+			return
+		}
+
+		// Connect tunnel.
+		_, err = tunnel.Connect(ctx)
+		if err != nil {
+			proxyErr = fmt.Errorf("could not connect to Gitea tunnel: %w", err)
+			slog.Error("Failed to create Gitea proxy", "error", proxyErr)
+			http.Error(w, fmt.Sprintf("Git proxy unavailable: %v", proxyErr), http.StatusServiceUnavailable)
+			return
+		}
+
+		// Get tunnel endpoint.
+		tunnelURLs := tunnel.HTTPEndpoints()
+		if len(tunnelURLs) == 0 {
+			proxyErr = fmt.Errorf("no tunnel HTTP endpoints available")
+			slog.Error("Failed to create Gitea proxy", "error", proxyErr)
+			http.Error(w, fmt.Sprintf("Git proxy unavailable: %v", proxyErr), http.StatusServiceUnavailable)
+			return
+		}
+
+		tunnelURL := tunnelURLs[0]
+		slog.Info("Created Gitea tunnel", "tunnelURL", tunnelURL)
+
+		// Create the reverse proxy.
+		proxy, err = createGiteaProxy(tunnelURL, gitServerInfo)
+		if err != nil {
+			proxyErr = fmt.Errorf("failed to create proxy: %w", err)
+			slog.Error("Failed to create Gitea proxy", "error", proxyErr)
+			http.Error(w, fmt.Sprintf("Git proxy unavailable: %v", proxyErr), http.StatusServiceUnavailable)
+			return
+		}
+
+		// Proxy the request.
+		proxy.ServeHTTP(w, r)
+	})
+}
 
 // createGiteaProxy creates a reverse proxy that forwards requests to Gitea
 // via the tunnel.

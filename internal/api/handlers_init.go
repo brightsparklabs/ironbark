@@ -7,6 +7,8 @@ package api
 import (
 	"log/slog"
 	"net/http"
+
+	ironbarkInit "brightsparklabs.com/ironbark/internal/init"
 )
 
 // -----------------------------------------------------------------------------
@@ -14,44 +16,109 @@ import (
 // -----------------------------------------------------------------------------
 
 // handleInitAll handles POST /ironbark/api/v1/init.
-// Initialises all components (equivalent to `ironbark init all`).
-//
-// Note: Full implementation deferred to Phase 4 (Git Proxy).
-// For now, returns not implemented to avoid premature refactoring.
+// Initialises all components - smart and idempotent.
+// Automatically detects and skips already-completed steps.
 func handleInitAll(w http.ResponseWriter, r *http.Request) {
 	slog.Info("API: Full initialisation requested")
-	writeJSONError(w, http.StatusNotImplemented, "Full initialisation via API not yet implemented. Use CLI: ironbark init all")
+
+	if err := ironbarkInit.InitAll(r.Context()); err != nil {
+		slog.Error("Full initialization failed", "error", err)
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	response := map[string]string{
+		"message": "All components initialized successfully",
+	}
+	writeJSONResponse(w, http.StatusOK, response)
+}
+
+// handleInitZarf handles POST /ironbark/api/v1/init/zarf.
+// Initializes Zarf with git-server component.
+// Requires zarf binary and zarf-init package to be available.
+func handleInitZarf(w http.ResponseWriter, r *http.Request) {
+	slog.Info("API: Zarf initialization requested")
+
+	if err := ironbarkInit.InitZarf(r.Context()); err != nil {
+		slog.Error("Zarf initialization failed", "error", err)
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	response := map[string]string{
+		"message": "Zarf initialized successfully",
+	}
+	writeJSONResponse(w, http.StatusOK, response)
 }
 
 // handleInitPackages handles POST /ironbark/api/v1/init/packages.
 // Deploys and mirrors packages.
-//
-// Note: Implementation deferred to Phase 4. Init operations are complex
-// and tightly coupled to CLI for now.
+// Requires Zarf to be initialized first.
 func handleInitPackages(w http.ResponseWriter, r *http.Request) {
-	writeJSONError(w, http.StatusNotImplemented, "Package initialisation via API not yet implemented. Use CLI: ironbark init packages")
+	slog.Info("API: Package initialization requested")
+
+	if err := ironbarkInit.InitPackages(r.Context()); err != nil {
+		slog.Error("Package initialization failed", "error", err)
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	response := map[string]string{
+		"message": "Packages initialized successfully",
+	}
+	writeJSONResponse(w, http.StatusOK, response)
 }
 
 // handleInitArgoCDRepoSecrets handles POST /ironbark/api/v1/init/argocd-repo-secrets.
 // Initialises ArgoCD repository secrets.
-//
-// Note: Implementation deferred to Phase 4.
+// Requires Zarf to be initialized first.
 func handleInitArgoCDRepoSecrets(w http.ResponseWriter, r *http.Request) {
-	writeJSONError(w, http.StatusNotImplemented, "ArgoCD repo secrets initialisation via API not yet implemented. Use CLI: ironbark init argocd-repo-secrets")
+	slog.Info("API: ArgoCD repo secrets initialization requested")
+
+	if err := ironbarkInit.InitArgoCDRepoSecrets(r.Context()); err != nil {
+		slog.Error("ArgoCD repo secrets initialization failed", "error", err)
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	response := map[string]string{
+		"message": "ArgoCD repository secrets initialized successfully",
+	}
+	writeJSONResponse(w, http.StatusOK, response)
 }
 
 // handleInitArgoCDAppOfAppsRepo handles POST /ironbark/api/v1/init/argocd-app-of-apps-repo.
 // Initialises the ArgoCD App of Apps repository.
-//
-// Note: Implementation deferred to Phase 4.
+// Requires Zarf to be initialized first.
 func handleInitArgoCDAppOfAppsRepo(w http.ResponseWriter, r *http.Request) {
-	writeJSONError(w, http.StatusNotImplemented, "ArgoCD App of Apps repo initialisation via API not yet implemented. Use CLI: ironbark init argocd-app-of-apps-repo")
+	slog.Info("API: ArgoCD App of Apps repo initialization requested")
+
+	if err := ironbarkInit.InitArgoCDAppOfAppsRepo(r.Context()); err != nil {
+		slog.Error("ArgoCD App of Apps repo initialization failed", "error", err)
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	response := map[string]string{
+		"message": "ArgoCD App of Apps repository initialized successfully",
+	}
+	writeJSONResponse(w, http.StatusOK, response)
 }
 
 // handleInitArgoCDApp handles POST /ironbark/api/v1/init/argocd-app.
 // Deploys the ArgoCD app of apps.
-//
-// Note: Implementation deferred to Phase 4.
+// Requires Zarf to be initialized first.
 func handleInitArgoCDApp(w http.ResponseWriter, r *http.Request) {
-	writeJSONError(w, http.StatusNotImplemented, "ArgoCD app deployment via API not yet implemented. Use CLI: ironbark init argocd-app")
+	slog.Info("API: ArgoCD app deployment requested")
+
+	if err := ironbarkInit.InitArgoCDApp(); err != nil {
+		slog.Error("ArgoCD app deployment failed", "error", err)
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	response := map[string]string{
+		"message": "ArgoCD App of Apps deployed successfully",
+	}
+	writeJSONResponse(w, http.StatusOK, response)
 }

@@ -109,8 +109,9 @@ func registerRoutes(mux *http.ServeMux) {
 	// Repository operations (placeholder for Phase 2/3).
 	mux.HandleFunc("GET /ironbark/api/v1/repo", handleRepoList)
 
-	// Cluster initialisation (placeholder for Phase 3).
+	// Cluster initialisation.
 	mux.HandleFunc("POST /ironbark/api/v1/init", handleInitAll)
+	mux.HandleFunc("POST /ironbark/api/v1/init/zarf", handleInitZarf)
 	mux.HandleFunc("POST /ironbark/api/v1/init/packages", handleInitPackages)
 	mux.HandleFunc("POST /ironbark/api/v1/init/argocd-repo-secrets", handleInitArgoCDRepoSecrets)
 	mux.HandleFunc("POST /ironbark/api/v1/init/argocd-app-of-apps-repo", handleInitArgoCDAppOfAppsRepo)
