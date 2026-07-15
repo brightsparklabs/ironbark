@@ -406,3 +406,40 @@ func getKubeconfigPath() (string, error) {
 
 	return "", fmt.Errorf("no kubeconfig found (upload via API or mount to container)")
 }
+
+// DeployAndMirrorPackage deploys a single Zarf package and mirrors its charts.
+// This is the same logic used by InitPackages but for a single uploaded package.
+func DeployAndMirrorPackage(ctx context.Context, packagePath string) error {
+	slog.Info("Deploying and mirroring package", "package", packagePath)
+
+	// Create a temporary directory for the package.
+	tmpDir, err := os.MkdirTemp("", "ironbark-package-*")
+	if err != nil {
+		return fmt.Errorf("failed to create temp directory: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Copy package to temp directory (zarf commands expect a directory).
+	packageName := filepath.Base(packagePath)
+	tmpPackagePath := filepath.Join(tmpDir, packageName)
+	input, err := os.ReadFile(packagePath)
+	if err != nil {
+		return fmt.Errorf("failed to read package: %w", err)
+	}
+	if err := os.WriteFile(tmpPackagePath, input, 0644); err != nil {
+		return fmt.Errorf("failed to copy package to temp dir: %w", err)
+	}
+
+	// Deploy packages in the directory.
+	if err := zarf.DeployPackages(tmpDir); err != nil {
+		return fmt.Errorf("failed to deploy package: %w", err)
+	}
+
+	// Mirror Helm charts from the package.
+	if err := zarf.MirrorPackageCharts(ctx, tmpDir); err != nil {
+		return fmt.Errorf("failed to mirror charts from package: %w", err)
+	}
+
+	slog.Info("Package deployed and charts mirrored", "package", packageName)
+	return nil
+}
