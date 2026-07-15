@@ -97,12 +97,21 @@ func InitZarf(ctx context.Context) error {
 		return fmt.Errorf("zarf-init package not found in %s", zarfInitDir)
 	}
 
+	// Get kubeconfig path (uploaded or mounted).
+	kubeconfigPath, err := getKubeconfigPath()
+	if err != nil {
+		return fmt.Errorf("no kubeconfig available: %w", err)
+	}
+
 	// Run zarf init with git-server component.
-	slog.Info("Running zarf init with git-server component...", "package", zarfInitPackage)
+	slog.Info("Running zarf init with git-server component...", "package", zarfInitPackage, "kubeconfig", kubeconfigPath)
 	cmd := exec.Command("zarf", "init", "--components=git-server", "--confirm", zarfInitPackage)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
+	
+	// Set KUBECONFIG environment variable so zarf can connect to the cluster.
+	cmd.Env = append(os.Environ(), fmt.Sprintf("KUBECONFIG=%s", kubeconfigPath))
 
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("zarf init failed: %w", err)
@@ -366,4 +375,33 @@ func createLocalArgoCDRepo(dir string) (*git.Repository, error) {
 func copyAppOfAppResources(dir string) error {
 	sourceDir := "repos/ironbark-argocd-app-of-apps"
 	return resources.Copy(sourceDir, dir)
+}
+
+// getKubeconfigPath returns the path to the kubeconfig file, preferring
+// uploaded over mounted.
+func getKubeconfigPath() (string, error) {
+	// Check for uploaded kubeconfig first (takes precedence).
+	uploadedPath := filepath.Join(settings.DataDir(), "kubeconfig")
+	if _, err := os.Stat(uploadedPath); err == nil {
+		return uploadedPath, nil
+	}
+
+	// Fall back to mounted kubeconfig.
+	if settings.InContainer() {
+		mountedPath := "/mnt/conf/kubeconfig"
+		if _, err := os.Stat(mountedPath); err == nil {
+			return mountedPath, nil
+		}
+	}
+
+	// Try standard location.
+	homeDir, err := os.UserHomeDir()
+	if err == nil {
+		defaultPath := filepath.Join(homeDir, ".kube", "config")
+		if _, err := os.Stat(defaultPath); err == nil {
+			return defaultPath, nil
+		}
+	}
+
+	return "", fmt.Errorf("no kubeconfig found (upload via API or mount to container)")
 }
