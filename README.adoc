@@ -139,11 +139,11 @@ Choose the RKE2 variant if you require RKE2's enhanced security and compliance f
 
 === Prerequisites
 
-* The environment has a working Kubernetes cluster (EKS, RKE2, K3s, etc.).
-* `kubectl` is configured and connected to the cluster.
-* Zarf has been initialised on the cluster (`zarf init`).
+. The environment has a working Kubernetes cluster (EKS, RKE2, K3s, etc.).
+. `kubectl` is configured and connected to the cluster.
+. Zarf has been initialised on the cluster (`zarf init`).
 
-If the above are not met, refer to <<Bootstrapping an Environment>>.
+If any of the above are not met, refer to <<Bootstrapping an Environment>>.
 
 === Shell Environment
 
@@ -793,6 +793,28 @@ List repositories in the internal Git server:
 curl http://localhost:8080/ironbark/api/v1/repo
 # Response: {"repositories":[...],"count":1}
 ----
+
+=== Artifact Downloads
+
+Download embedded artifacts from the container:
+
+[source,bash]
+----
+# List available artifacts.
+curl http://localhost:8080/ironbark/api/v1/artifact
+
+# Download zarf-init package.
+curl -O http://localhost:8080/ironbark/api/v1/artifact/zarf-init
+
+# Download RKE2 artifacts (only available in ironbark-rke2 variant).
+curl -o rke2-artifacts.tar.gz http://localhost:8080/ironbark/api/v1/artifact/rke2
+----
+
+Available artifacts:
+
+[horizontal]
+zarf-init:: Zarf init package for bootstrapping K3s clusters.
+rke2:: RKE2 installation artifacts (only in `ironbark-rke2` container variant).
 
 === Initialization Operations
 

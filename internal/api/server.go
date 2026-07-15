@@ -115,4 +115,9 @@ func registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /ironbark/api/v1/init/argocd-repo-secrets", handleInitArgoCDRepoSecrets)
 	mux.HandleFunc("POST /ironbark/api/v1/init/argocd-app-of-apps-repo", handleInitArgoCDAppOfAppsRepo)
 	mux.HandleFunc("POST /ironbark/api/v1/init/argocd-app", handleInitArgoCDApp)
+
+	// Artifact downloads.
+	mux.HandleFunc("GET /ironbark/api/v1/artifact", handleArtifactsList)
+	mux.HandleFunc("GET /ironbark/api/v1/artifact/zarf-init", handleZarfInitDownload)
+	mux.HandleFunc("GET /ironbark/api/v1/artifact/rke2", handleRKE2Download)
 }
