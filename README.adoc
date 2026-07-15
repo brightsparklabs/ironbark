@@ -731,7 +731,7 @@ cd "${IRONBARK_HOST_DATA_DIR}/repos/ironbark-argocd-app-of-apps"
 +
 [source,bash]
 ----
-ironbark argo push
+ironbark repo push
 ----
 
 . ArgoCD will automatically sync the changes and deploy your applications.
@@ -988,7 +988,7 @@ replicaCount: 2
 ----
 git add .
 git commit -m "Add whoami"
-ironbark argo push
+ironbark repo push
 ----
 
 . ArgoCD will automatically deploy the application.

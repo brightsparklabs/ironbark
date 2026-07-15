@@ -278,6 +278,10 @@ COPY --from=builder-tooling /build/ .
 COPY --from=builder-golang /build/build/bin/ironbark bin/
 COPY --from=builder-golang /build/VERSION.json .
 
+# Default to running in serve mode (API server).
+# Users can override by specifying a command: docker run ... ironbark init all
+CMD ["serve"]
+
 ENTRYPOINT ["/app/bin/ironbark"]
 
 # Expose API server port (8080) and Git proxy port (3000).
