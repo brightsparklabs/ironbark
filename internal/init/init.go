@@ -381,7 +381,8 @@ func copyAppOfAppResources(dir string) error {
 // uploaded over mounted.
 func getKubeconfigPath() (string, error) {
 	// Check for uploaded kubeconfig first (takes precedence).
-	uploadedPath := filepath.Join(settings.DataDir(), "kubeconfig")
+	// Must match the path used in internal/api/kubeconfig.go.
+	uploadedPath := "/tmp/ironbark/uploaded-kubeconfig"
 	if _, err := os.Stat(uploadedPath); err == nil {
 		return uploadedPath, nil
 	}
