@@ -117,7 +117,7 @@ func registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /ironbark/api/v1/init/argocd-app-of-apps-repo", handleInitArgoCDAppOfAppsRepo)
 	mux.HandleFunc("POST /ironbark/api/v1/init/argocd-app", handleInitArgoCDApp)
 
-	// Package upload and deployment.
+	// Package management.
 	mux.HandleFunc("POST /ironbark/api/v1/package", handlePackageUpload)
 	mux.HandleFunc("POST /ironbark/api/v1/package/bulk", handlePackageBulkUpload)
 
