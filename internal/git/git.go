@@ -159,8 +159,118 @@ func PushRepoArgoCDAppOfApps(ctx context.Context, localRepoDir string) error {
 	return PushRepo(ctx, localRepoDir, constants.ArgoCDRepoName)
 }
 
-// PullRepo pulls changes from the remote repository (not yet implemented).
-func PullRepo(dir string) {}
+// Repository represents basic information about a Git repository.
+type Repository struct {
+	Name     string
+	CloneURL string
+	Owner    string
+}
+
+// ListRepos lists all repositories in the internal Git server.
+func ListRepos(ctx context.Context) ([]Repository, error) {
+	f := func(gitTunnel *zarfcluster.Tunnel, gitServerInfo *zarfstate.GitServerInfo) (any, error) {
+		giteaClient, err := getGiteaClient(gitTunnel, gitServerInfo)
+		if err != nil {
+			return nil, err
+		}
+
+		// List repositories for the authenticated user.
+		giteaRepos, _, err := giteaClient.ListMyRepos(gitea.ListReposOptions{})
+		if err != nil {
+			return nil, fmt.Errorf("could not list repositories: %w", err)
+		}
+
+		// Convert Gitea repositories to our Repository type.
+		repos := make([]Repository, 0, len(giteaRepos))
+		for _, giteaRepo := range giteaRepos {
+			repo := Repository{
+				Name:     giteaRepo.Name,
+				CloneURL: giteaRepo.CloneURL,
+				Owner:    giteaRepo.Owner.UserName,
+			}
+			repos = append(repos, repo)
+		}
+
+		return repos, nil
+	}
+
+	result, err := executeInGitTunnel(ctx, f)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list repositories: %w", err)
+	}
+
+	repos, ok := result.([]Repository)
+	if !ok {
+		return nil, fmt.Errorf("could not convert response to repository list")
+	}
+
+	return repos, nil
+}
+
+// PullRepo pulls the latest changes from a remote repository.
+func PullRepo(ctx context.Context, localRepoDir string, remoteRepoName string) error {
+	localRepo, err := git.PlainOpen(localRepoDir)
+	if err != nil {
+		return fmt.Errorf("could not open local repository `%v`: %w", localRepoDir, err)
+	}
+
+	f := func(gitTunnel *zarfcluster.Tunnel, gitServerInfo *zarfstate.GitServerInfo) (any, error) {
+		// Update the remote URL to point to the current tunnel.
+		// Similar to PushRepo, we need to update the origin remote for each operation
+		// since tunnel ports change between invocations.
+		extantOrigin, err := localRepo.Remote("origin")
+		if extantOrigin != nil {
+			err = localRepo.DeleteRemote("origin")
+			if err != nil {
+				return nil, fmt.Errorf("could not delete remote `origin`: %w", err)
+			}
+		}
+
+		_, err = localRepo.CreateRemote(&config.RemoteConfig{
+			Name: "origin",
+			URLs: []string{gitTunnel.HTTPEndpoints()[0] + "/" + gitServerInfo.PushUsername + "/" + remoteRepoName},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("could not create remote: %w", err)
+		}
+
+		// Get the working tree.
+		worktree, err := localRepo.Worktree()
+		if err != nil {
+			return nil, fmt.Errorf("could not get worktree: %w", err)
+		}
+
+		auth := &http.BasicAuth{
+			Username: gitServerInfo.PushUsername,
+			Password: gitServerInfo.PushPassword,
+		}
+
+		// Pull changes from origin.
+		err = worktree.Pull(&git.PullOptions{
+			RemoteName: "origin",
+			Auth:       auth,
+		})
+
+		// git.NoErrAlreadyUpToDate is not an error - it just means we're already up to date.
+		if err != nil && err != git.NoErrAlreadyUpToDate {
+			return nil, fmt.Errorf("could not pull changes: %w", err)
+		}
+
+		return nil, nil
+	}
+
+	_, err = executeInGitTunnel(ctx, f)
+	if err != nil {
+		return fmt.Errorf("failed to execute repository pull: %w", err)
+	}
+
+	return nil
+}
+
+// PullRepoArgoCDAppOfApps pulls the latest changes from the ArgoCD App of Apps repository.
+func PullRepoArgoCDAppOfApps(ctx context.Context, localRepoDir string) error {
+	return PullRepo(ctx, localRepoDir, constants.ArgoCDRepoName)
+}
 
 // executeInGitTunnel creates a tunnel to the Zarf Git server and executes the provided function with access to the tunnel and Git server info.
 func executeInGitTunnel(ctx context.Context, f func(t *zarfcluster.Tunnel, gitServerInfo *zarfstate.GitServerInfo) (any, error)) (any, error) {

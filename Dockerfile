@@ -150,6 +150,11 @@ RUN curl --fail --silent --show-error --location --retry 3 \
       --output "rke2-images-cilium.linux-${ARCH}.tar.zst" \
       "https://github.com/rancher/rke2/releases/download/${RKE2_VERSION}/rke2-images-cilium.linux-${ARCH}.tar.zst"
 
+# Download RKE2 core image tarball (contains runtime and essential images).
+RUN curl --fail --silent --show-error --location --retry 3 \
+      --output "rke2-images-core.linux-${ARCH}.tar.zst" \
+      "https://github.com/rancher/rke2/releases/download/${RKE2_VERSION}/rke2-images-core.linux-${ARCH}.tar.zst"
+
 # Download checksums for verification.
 RUN curl --fail --silent --show-error --location --retry 3 \
       --output "sha256sum-${ARCH}.txt" \
@@ -278,7 +283,15 @@ COPY --from=builder-tooling /build/ .
 COPY --from=builder-golang /build/build/bin/ironbark bin/
 COPY --from=builder-golang /build/VERSION.json .
 
+# Default to running in serve mode (API server).
+# Users can override by specifying a command: docker run ... ironbark init all
+CMD ["serve"]
+
 ENTRYPOINT ["/app/bin/ironbark"]
+
+# Expose API server port (8080) and Git proxy port (3000).
+# These are used when running Ironbark in serve mode.
+EXPOSE 8080 3000
 
 # ------------------------------------------------------------------------------
 # FINAL STAGE - K3S VARIANT (DEFAULT)
@@ -308,8 +321,9 @@ FROM ironbark-base AS ironbark-rke2
 # Set environment variable to indicate RKE2 variant.
 ENV IRONBARK_RKE2_AVAILABLE=true
 
-# Copy RKE2 artifacts from the RKE2 builder stage.
-COPY --from=builder-rke2-artifacts /build/ .
+# Copy RKE2 artifacts from the RKE2 builder stage to /app/resources/rke2.
+# This path is consistent with other resources and used by the artifact download API.
+COPY --from=builder-rke2-artifacts /build/ resources/rke2/
 
 LABEL org.label-schema.name="ironbark-rke2" \
       org.label-schema.description="Kubernetes management using the brightSPARK Labs opinionated deployment pattern (RKE2)" \

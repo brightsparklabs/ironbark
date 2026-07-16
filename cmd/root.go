@@ -105,13 +105,15 @@ func registerSubcommands() {
 	if hasSubcommand(rootCmd, "version") {
 		return
 	}
-	rootCmd.AddCommand(newArgoCmd())
+	rootCmd.AddCommand(newRepoCmd())
 	rootCmd.AddCommand(newInitCmd())
+	rootCmd.AddCommand(newUploadCmd())
 	rootCmd.AddCommand(newGenerateCmd())
 	rootCmd.AddCommand(newVersionCmd())
 	rootCmd.AddCommand(newDebugCmd())
 	rootCmd.AddCommand(newDocsCmd())
 	rootCmd.AddCommand(newExecCmd())
+	rootCmd.AddCommand(newServeCmd())
 }
 
 // hasSubcommand returns true if `parent` already has a direct child

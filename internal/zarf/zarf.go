@@ -14,6 +14,7 @@ import (
 
 	zarfcluster "github.com/zarf-dev/zarf/src/pkg/cluster"
 	zarfstate "github.com/zarf-dev/zarf/src/pkg/state"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 var zarfCluster *zarfcluster.Cluster
@@ -76,6 +77,28 @@ func GetGitServerInfo(ctx context.Context) (*zarfstate.GitServerInfo, error) {
 		return nil, err
 	}
 	return &zarfState.GitServer, nil
+}
+
+// IsInitialized checks if Zarf is initialized in the cluster by looking for
+// the zarf namespace and the gitea deployment.
+func IsInitialized(ctx context.Context) bool {
+	cluster, err := GetCluster(ctx)
+	if err != nil {
+		slog.Debug("Zarf not initialized: cannot get cluster", "error", err)
+		return false
+	}
+
+	// Check if zarf namespace exists and gitea deployment is present.
+	// The gitea deployment is created by zarf init with git-server component.
+	k8s := cluster.Clientset
+	_, err = k8s.AppsV1().Deployments("zarf").Get(ctx, "zarf-gitea", metav1.GetOptions{})
+	if err != nil {
+		slog.Debug("Zarf not initialized: gitea deployment not found", "error", err)
+		return false
+	}
+
+	slog.Debug("Zarf is initialized (gitea deployment found)")
+	return true
 }
 
 func DeployPackages(dir string) error {
