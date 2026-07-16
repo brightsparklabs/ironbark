@@ -107,6 +107,7 @@ func registerSubcommands() {
 	}
 	rootCmd.AddCommand(newRepoCmd())
 	rootCmd.AddCommand(newInitCmd())
+	rootCmd.AddCommand(newUploadCmd())
 	rootCmd.AddCommand(newGenerateCmd())
 	rootCmd.AddCommand(newVersionCmd())
 	rootCmd.AddCommand(newDebugCmd())
