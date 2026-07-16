@@ -218,16 +218,41 @@ zarf-init:: Zarf init package for bootstrapping K3s clusters.
 
 == Adding New Applications
 
-To add a new application to your Ironbark deployment:
+To add applications to your Ironbark deployment, you need to mirror the application's Zarf package and configure it in the ArgoCD App of Apps repository.
 
-. Ensure the Helm chart is mirrored to the Zarf OCI registry (via a Zarf package).
-+
-Any chart declared under `components[].charts` in a mirror package is pushed to the in-cluster OCI registry automatically when `ironbark init packages` runs.
+=== Mirror the Application Package
+
+Mirror your application's Zarf package to the cluster's internal OCI registry.
+
+[source,bash]
+----
+# Upload single package
+curl -X POST http://localhost:8080/ironbark/api/v1/package \
+  --data-binary @my-app.tar.zst \
+  -H "Content-Disposition: attachment; filename=my-app.tar.zst"
+
+# Upload multiple packages from archive
+curl -X POST http://localhost:8080/ironbark/api/v1/package/bulk \
+  --data-binary @my-packages.tar.gz \
+  -H "Content-Disposition: attachment; filename=my-packages.tar.gz"
+----
+
+This mirrors the package's container images and Helm charts to the cluster's internal registry without deploying them.
+
+==== Understanding landing location
+
+Any chart declared under `components[].charts` in the package is pushed to the in-cluster OCI registry.
 The chart lands at a predictable path that preserves upstream provenance:
+
+===== URL-sourced charts (`oci://` or `https://`)
+
+Lands at::
 +
-URL-sourced charts (`oci://` or `https://`):: `oci://<zarf-registry>/ironbark/charts/<upstream-host-and-path>/<chart-name>:<chart-version>`.
-+
-E.g.
+----
+oci://<zarf-registry>/ironbark/charts/<upstream-host-and-path>/<chart-name>:<chart-version>
+----
+
+E.g.::
 +
 A chart declared as:::
 +
@@ -239,13 +264,20 @@ Lands at:::
 ----
 oci://<zarf-registry>/ironbark/charts/ghcr.io/cowboysysop/charts/whoami:6.0.0
 ----
-Local charts (`localPath`, `gitPath`):: `oci://<zarf-registry>/ironbark/charts/<zarf-package-name>/<chart-name>:<chart-version>`.
+
+===== Local charts (`localPath`, `gitPath`)
+
+Lands at::
 +
+----
+oci://<zarf-registry>/ironbark/charts/<zarf-package-name>/<chart-name>:<chart-version>
+----
+
 The Zarf package name is used as the namespace because no upstream URL is available; this prevents collisions when two packages ship a chart with the same name.
-+
+
 All four Zarf chart source types are supported (`localPath`, `gitPath`, `url: https://`, `url: oci://`).
 Use the predictable path to reference the mirrored chart from your ArgoCD `Application` (or any other in-cluster consumer).
-+
+
 [NOTE]
 .Umbrella (chart-of-charts) support
 --
@@ -256,25 +288,27 @@ Only the umbrella chart itself is pushed to the in-cluster registry; sub-charts 
 Caveat: container images referenced from sub-chart templates or hooks are not always auto-detected by Zarf's image discovery pass.
 If a sub-chart fails to deploy because an image was not mirrored, add the missing image to the parent component's `images:` list in `zarf.yaml`.
 --
-+
+
 [NOTE]
 --
 This works around an upstream Zarf limitation where `zarf package mirror-resources` only mirrors images and Git repos, never Helm charts.
 The chart-mirror step is implemented in Ironbark itself; see `internal/zarf/charts.go`.
 --
 
-. Clone the App of Apps repository:
-+
+=== Clone the App of Apps repository
+
 [source,bash]
 ----
 git clone http://localhost:3000/zarf-git-user/ironbark-argocd-app-of-apps.git
 cd ironbark-argocd-app-of-apps
 ----
 
-. Add the application to `chart/values.yaml`:
-+
+=== Add the application in App of Apps Repository
+
+Update `chart/values.yaml` to include the new application.
+
 The `chart.name` must be the chart path mirrored by Ironbark, without the `oci://<zarf-registry>/` prefix (ArgoCD prepends the registry host from the repo secret).
-+
+
 For example, the canary chart at::
 +
 ----
@@ -283,36 +317,41 @@ oci://<zarf-registry>/ironbark/charts/ghcr.io/cowboysysop/charts/whoami:6.0.0
 +
 Is referenced as::
 +
+.chart/values.yaml
 [source,yaml]
 ----
-applications:
-  - name: whoami
-    chart:
-      name: ironbark/charts/ghcr.io/cowboysysop/charts/whoami
-      targetRevision: 6.0.0
-    values:
-      path: apps/whoami/values.yaml
-      targetRevision: HEAD
-      # Optional: Set Helm values from file contents (equivalent to `helm --set-file`).
-      fileParameters:
-        # Equivalent to `helm --set-file config.json=apps/whoami/config.json`.
-        - name: config.json
-          path: apps/whoami/config.json
-        # Equivalent to `helm --set-file tls.cert=apps/whoami/cert.pem`.
-        - name: tls.cert
-          path: apps/whoami/cert.pem
+  applications:
+    ...
+  
++   - name: whoami
++     chart:
++       name: ironbark/charts/ghcr.io/cowboysysop/charts/whoami
++       targetRevision: 6.0.0
++     values:
++       path: apps/whoami/values.yaml
++       targetRevision: HEAD
++ 
++       # Optional: Set Helm values from file contents (equivalent to `helm --set-file`).
++       #fileParameters:
++       #  # Equivalent to `helm --set-file config.json=apps/whoami/config.json`.
++       #  - name: config.json
++       #    path: apps/whoami/config.json
++       #  # Equivalent to `helm --set-file tls.cert=apps/whoami/cert.pem`.
++       #  - name: tls.cert
++       #    path: apps/whoami/cert.pem
 ----
 
-. Create values file at `apps/whoami/values.yaml`:
-+
+=== Create values file in App of Apps Repository
+
+.apps/whoami/values.yaml
 [source,yaml]
 ----
 # Your Helm values here.
 replicaCount: 2
 ----
 
-. Commit and push changes:
-+
+=== Commit and push changes
+
 [source,bash]
 ----
 git add .
@@ -320,7 +359,9 @@ git commit -m "Add whoami"
 git push origin main
 ----
 
-. ArgoCD will automatically deploy the application.
+=== ArgoCD deployment
+
+ArgoCD will automatically deploy the application.
 
 == Troubleshooting
 
