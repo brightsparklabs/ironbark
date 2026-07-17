@@ -579,6 +579,41 @@ sudo cp rke2-images-*.tar.zst /var/lib/rancher/rke2/agent/images/
 +
 IMPORTANT: Both `rke2-images-cilium` and `rke2-images-core` tarballs are required for air-gapped deployment.
 
+. Configure firewall for pod network access:
++
+The firewall must be configured to allow pods to communicate with the host.
+Without this configuration, pods cannot reach the Kubernetes API server, causing CoreDNS and other system components to fail.
++
+--
+*For firewalld (Rocky Linux, RHEL, CentOS):*
+
+[source,bash]
+----
+# Add pod network to trusted zone.
+sudo firewall-cmd --zone=trusted --add-source=10.42.0.0/16 --permanent
+
+# Reload firewall to apply changes.
+sudo firewall-cmd --reload
+
+# Verify configuration.
+sudo firewall-cmd --list-all --zone=trusted
+----
+
+*For ufw (Ubuntu, Debian):*
+
+[source,bash]
+----
+# Allow traffic from pod network.
+sudo ufw allow from 10.42.0.0/16
+
+# Verify configuration.
+sudo ufw status
+----
+--
++
+NOTE: The pod network CIDR `10.42.0.0/16` is RKE2's default.
+If you have customised the pod CIDR in your RKE2 configuration, use that value instead.
+
 . Start RKE2:
 +
 [source,bash]
