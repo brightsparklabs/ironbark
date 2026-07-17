@@ -5,6 +5,10 @@
 # Cilium provides eBPF-based networking, security, and observability.
 cni: cilium
 
+# Disable kube-proxy to allow Cilium to handle service load balancing via eBPF.
+# This enables Cilium's kube-proxy replacement feature for better performance.
+disable-kube-proxy: true
+
 # Make kubeconfig readable by non-root users.
 write-kubeconfig-mode: "0644"
 
