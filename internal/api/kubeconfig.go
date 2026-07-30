@@ -44,33 +44,35 @@ var kubeconfigMutex sync.RWMutex
 //
 // The content is validated to ensure it is valid UTF-8 text and valid YAML
 // before saving.
-func SaveUploadedKubeconfig(content []byte) error {
+//
+// Returns the path where the kubeconfig was saved.
+func SaveUploadedKubeconfig(content []byte) (string, error) {
 	kubeconfigMutex.Lock()
 	defer kubeconfigMutex.Unlock()
 
 	// Validate that the content is valid UTF-8 text.
 	if err := validateTextContent(content); err != nil {
-		return fmt.Errorf("invalid kubeconfig content: %w", err)
+		return "", fmt.Errorf("invalid kubeconfig content: %w", err)
 	}
 
 	// Validate that the content is valid YAML.
 	if err := validateYAML(content); err != nil {
-		return fmt.Errorf("invalid kubeconfig YAML: %w", err)
+		return "", fmt.Errorf("invalid kubeconfig YAML: %w", err)
 	}
 
 	// Ensure parent directory exists.
 	dir := filepath.Dir(uploadedKubeconfigPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("failed to create directory for uploaded kubeconfig: %w", err)
+		return "", fmt.Errorf("failed to create directory for uploaded kubeconfig: %w", err)
 	}
 
 	// Write the kubeconfig content.
 	if err := os.WriteFile(uploadedKubeconfigPath, content, 0600); err != nil {
-		return fmt.Errorf("failed to write uploaded kubeconfig: %w", err)
+		return "", fmt.Errorf("failed to write uploaded kubeconfig: %w", err)
 	}
 
 	slog.Info("Uploaded kubeconfig saved", "path", uploadedKubeconfigPath)
-	return nil
+	return uploadedKubeconfigPath, nil
 }
 
 // GetActiveKubeconfig returns the content and source of the currently active
@@ -274,4 +276,34 @@ func validateYAML(content []byte) error {
 	}
 
 	return nil
+}
+
+// SetKubeconfigEnvFromPath sets the KUBECONFIG environment variable globally
+// to the provided path.
+func SetKubeconfigEnvFromPath(path string) error {
+	slog.Info("Setting KUBECONFIG environment variable globally", "path", path)
+	if err := os.Setenv("KUBECONFIG", path); err != nil {
+		return fmt.Errorf("failed to set KUBECONFIG environment variable: %w", err)
+	}
+	return nil
+}
+
+// ClearKubeconfigEnv unsets the KUBECONFIG environment variable.
+func ClearKubeconfigEnv() {
+	slog.Info("Clearing KUBECONFIG environment variable")
+	os.Unsetenv("KUBECONFIG")
+}
+
+// InitializeKubeconfigEnv attempts to set the KUBECONFIG environment variable
+// at startup if a kubeconfig is available (uploaded or mounted).
+// Returns an error if no kubeconfig is found, but this is not fatal - the
+// kubeconfig can be uploaded later via the API.
+func InitializeKubeconfigEnv() error {
+	kubeconfigPath, source, err := GetActiveKubeconfigPath()
+	if err != nil {
+		return err
+	}
+
+	slog.Info("Found kubeconfig at startup", "source", source, "path", kubeconfigPath)
+	return SetKubeconfigEnvFromPath(kubeconfigPath)
 }

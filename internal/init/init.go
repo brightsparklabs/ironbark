@@ -28,6 +28,19 @@ import (
 // VALIDATION FUNCTIONS
 // -----------------------------------------------------------------------------
 
+// requireZarfInitialized checks if Zarf is initialized and returns an error if not.
+// This helper eliminates repetitive initialization checks throughout the codebase.
+func requireZarfInitialized(ctx context.Context) error {
+	initialized, err := zarf.IsInitialized(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to check Zarf initialization status: %w", err)
+	}
+	if !initialized {
+		return fmt.Errorf("Zarf not initialized. Run InitZarf() first")
+	}
+	return nil
+}
+
 // CanInitZarf checks if prerequisites for Zarf initialization are met.
 // Returns nil if Zarf init can proceed, error otherwise.
 func CanInitZarf() error {
@@ -68,7 +81,11 @@ func InitZarf(ctx context.Context) error {
 	slog.Info("Initializing Zarf...")
 
 	// Check if already initialized.
-	if zarf.IsInitialized(ctx) {
+	initialized, err := zarf.IsInitialized(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to check Zarf initialization status: %w", err)
+	}
+	if initialized {
 		slog.Info("Zarf already initialized, skipping")
 		return nil
 	}
@@ -127,8 +144,8 @@ func InitPackages(ctx context.Context) error {
 	slog.Info("Initializing packages...")
 
 	// Check prerequisite: Zarf must be initialized.
-	if !zarf.IsInitialized(ctx) {
-		return fmt.Errorf("Zarf not initialized. Run InitZarf() first")
+	if err := requireZarfInitialized(ctx); err != nil {
+		return err
 	}
 
 	// Get packages directory from settings.
@@ -159,8 +176,8 @@ func InitArgoCDRepoSecrets(ctx context.Context) error {
 	slog.Info("Adding ArgoCD repository secrets...")
 
 	// Check prerequisite: Zarf must be initialized.
-	if !zarf.IsInitialized(ctx) {
-		return fmt.Errorf("Zarf not initialized. Run InitZarf() first")
+	if err := requireZarfInitialized(ctx); err != nil {
+		return err
 	}
 
 	zarfCluster, err := zarf.GetCluster(ctx)
@@ -247,8 +264,8 @@ func InitArgoCDAppOfAppsRepo(ctx context.Context) error {
 	slog.Info("Initialising ArgoCD App of Apps repository ...")
 
 	// Check prerequisite: Zarf must be initialized.
-	if !zarf.IsInitialized(ctx) {
-		return fmt.Errorf("Zarf not initialized. Run InitZarf() first")
+	if err := requireZarfInitialized(ctx); err != nil {
+		return err
 	}
 
 	// Create local repository.
@@ -298,9 +315,9 @@ func InitArgoCDAppOfAppsRepo(ctx context.Context) error {
 func InitArgoCDApp() error {
 	slog.Info("Deploying ArgoCD App of Apps ...")
 
-	// Check prerequisite: Zarf must be initialized (pass empty context for this check).
-	if !zarf.IsInitialized(context.Background()) {
-		return fmt.Errorf("Zarf not initialized. Run InitZarf() first")
+	// Check prerequisite: Zarf must be initialized.
+	if err := requireZarfInitialized(context.Background()); err != nil {
+		return err
 	}
 
 	// Apply the bootstrap App of Apps manifest.

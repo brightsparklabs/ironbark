@@ -31,9 +31,18 @@ func handleKubeconfigUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Save the uploaded kubeconfig (includes validation).
-	if err := SaveUploadedKubeconfig(content); err != nil {
+	uploadedPath, err := SaveUploadedKubeconfig(content)
+	if err != nil {
 		slog.Error("Failed to save uploaded kubeconfig", "error", err)
 		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// Set the KUBECONFIG environment variable globally so all subsequent
+	// cluster operations can use it.
+	if err := SetKubeconfigEnvFromPath(uploadedPath); err != nil {
+		slog.Error("Failed to set KUBECONFIG environment variable", "error", err)
+		writeJSONError(w, http.StatusInternalServerError, "Kubeconfig saved but failed to set globally: "+err.Error())
 		return
 	}
 
@@ -72,12 +81,18 @@ func handleKubeconfigDelete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check if a mounted kubeconfig is available after deletion.
-	_, source, err := GetActiveKubeconfig()
+	kubeconfigPath, source, err := GetActiveKubeconfigPath()
 	message := "Uploaded kubeconfig deleted."
 	if err == nil {
 		message += " Reverted to " + source + "."
+		// Update KUBECONFIG environment variable to point to the fallback.
+		if err := SetKubeconfigEnvFromPath(kubeconfigPath); err != nil {
+			slog.Error("Failed to update KUBECONFIG environment variable", "error", err)
+		}
 	} else {
 		message += " No mounted kubeconfig available."
+		// Clear the KUBECONFIG environment variable since no kubeconfig is available.
+		ClearKubeconfigEnv()
 	}
 
 	response := map[string]string{
