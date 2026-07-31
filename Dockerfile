@@ -17,6 +17,7 @@
 ARG TARGETARCH
 ARG ARCH=${TARGETARCH:-amd64}
 ARG UBUNTU_IMAGE=ubuntu:24.04
+ARG ALPINE_IMAGE=alpine:3.24
 ARG GOLANG_VERSION=1.26.5
 
 # Tool versions.
@@ -178,8 +179,6 @@ ARG APP_VERSION=dev
 ARG VCS_REF=unknown
 ARG BUILD_TIME_UTC=unknown
 ARG BUILD_DATE=unknown
-ARG KUBECTL_VERSION
-ARG ZARF_VERSION
 
 # Use bash with strict error handling for every `RUN` in this stage —
 # same rationale as `builder-tooling`. Defensive: nothing in this stage
@@ -222,29 +221,21 @@ RUN make build \
       BUILD_TIME_UTC=${BUILD_TIME_UTC} \
       BUILD_DATE=${BUILD_DATE}
 
-# Create version file documenting all bundled tools. This is done here
-# (rather than in the final stage) because `scratch` has no shell to run
-# `printf`. The file is copied into the final image below.
-RUN printf '{"version": {"ironbark": "%s", "kubectl": "%s", "zarf": "%s"}}\n' \
-      "${APP_VERSION}" \
-      "${KUBECTL_VERSION}" \
-      "${ZARF_VERSION}" \
-      > /build/VERSION.json
-
 # ------------------------------------------------------------------------------
 # FINAL STAGE - BASE (SHARED)
 # ------------------------------------------------------------------------------
 
 # Common base for both K3s and RKE2 variants. This stage contains everything
 # except the K8s distribution artifacts (Zarf init or RKE2 files).
-FROM scratch AS ironbark-base
-# FROM ${UBUNTU_IMAGE} AS ironbark-base
+FROM ${ALPINE_IMAGE} AS ironbark-base
 
 ARG IRONBARK_DATA_DIR=/mnt/data
 ARG IRONBARK_INTERNAL_PACKAGES_DIR=/app/resources/packages
-ARG APP_VERSION=latest
+ARG APP_VERSION=dev
 ARG BUILD_DATE
 ARG VCS_REF
+ARG KUBECTL_VERSION
+ARG ZARF_VERSION
 
 # `IRONBARK_IN_CONTAINER` is baked into the image so any process started from
 # this image (whether via the launcher script or an ad-hoc `podman run`) can
@@ -281,7 +272,14 @@ WORKDIR /tmp
 WORKDIR /app
 COPY --from=builder-tooling /build/ .
 COPY --from=builder-golang /build/build/bin/ironbark bin/
-COPY --from=builder-golang /build/VERSION.json .
+
+# Create version file documenting all bundled tools.
+# The file is copied into the final image below.
+RUN printf '{"version": {"ironbark": "%s", "kubectl": "%s", "zarf": "%s"}}\n' \
+      "${APP_VERSION}" \
+      "${KUBECTL_VERSION}" \
+      "${ZARF_VERSION}" \
+      > VERSION.json
 
 # Default to running in serve mode (API server).
 # Users can override by specifying a command: docker run ... ironbark init all
