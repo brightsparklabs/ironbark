@@ -146,7 +146,38 @@ function main() {
         exit 1
     fi
 
+    # Copy CSI manifest to RKE2 manifests directory for auto-deployment.
+    print_info "Installing local-path-provisioner CSI driver manifest..."
+    local csi_manifest_source="${IRONBARK_SCRIPT_RKE2_OUTPUT_DIR}/csi-local-path-provisioner.yaml"
+    local rke2_manifests_dir="/var/lib/rancher/rke2/server/manifests"
+
+    if [[ -f "${csi_manifest_source}" ]]; then
+        if [[ -d "${rke2_manifests_dir}" ]]; then
+            if sudo cp "${csi_manifest_source}" "${rke2_manifests_dir}/csi-local-path-provisioner.yaml"; then
+                print_info "CSI manifest installed to ${rke2_manifests_dir}/csi-local-path-provisioner.yaml"
+                print_info "Local-path-provisioner will be deployed automatically when RKE2 starts."
+            else
+                print_info "Note: Could not copy CSI manifest to ${rke2_manifests_dir}."
+                print_info "You can manually copy it after RKE2 installation:"
+                print_info "  sudo mkdir -p ${rke2_manifests_dir}"
+                print_info "  sudo cp \"${csi_manifest_source}\" \"${rke2_manifests_dir}/\""
+            fi
+        else
+            print_info "Note: RKE2 manifests directory not yet created (${rke2_manifests_dir})."
+            print_info "The CSI manifest will be available at: ${csi_manifest_source}"
+            print_info "Copy it after RKE2 installation with:"
+            print_info "  sudo mkdir -p ${rke2_manifests_dir}"
+            print_info "  sudo cp \"${csi_manifest_source}\" \"${rke2_manifests_dir}/\""
+        fi
+    fi
+
+    print_info ""
     print_info "RKE2 assets extracted successfully to: ${IRONBARK_SCRIPT_RKE2_OUTPUT_DIR}"
+    print_info ""
+    print_info "Included CSI driver: local-path-provisioner v0.0.30"
+    print_info "  - Provides dynamic persistent volume provisioning"
+    print_info "  - Default StorageClass: local-path (Retain policy, Immediate binding)"
+    print_info "  - Storage path: /opt/local-path-provisioner"
     print_info ""
     print_info "Next steps:"
     print_info "  1. Review the RKE2 installation script and configuration options:"
@@ -163,7 +194,11 @@ function main() {
     print_info "     sudo vi /etc/rancher/rke2/config.yaml"
     print_info "     # See: https://docs.rke2.io/install/configuration"
     print_info ""
-    print_info "  4. Enable and start the RKE2 service:"
+    print_info "  4. Copy CSI manifest to RKE2 manifests directory (if not done automatically above):"
+    print_info "     sudo mkdir -p /var/lib/rancher/rke2/server/manifests"
+    print_info "     sudo cp \"${IRONBARK_SCRIPT_RKE2_OUTPUT_DIR}/csi-local-path-provisioner.yaml\" /var/lib/rancher/rke2/server/manifests/"
+    print_info ""
+    print_info "  5. Enable and start the RKE2 service:"
     print_info "     # For server node:"
     print_info "     sudo systemctl enable rke2-server.service"
     print_info "     sudo systemctl start rke2-server.service"
@@ -172,8 +207,12 @@ function main() {
     print_info "     sudo systemctl enable rke2-agent.service"
     print_info "     sudo systemctl start rke2-agent.service"
     print_info ""
-    print_info "  5. Access the cluster:"
+    print_info "  6. Verify CSI driver deployment:"
     print_info "     export KUBECONFIG=/etc/rancher/rke2/rke2.yaml"
+    print_info "     /var/lib/rancher/rke2/bin/kubectl get pods -n local-path-storage"
+    print_info "     /var/lib/rancher/rke2/bin/kubectl get storageclass local-path"
+    print_info ""
+    print_info "  7. Access the cluster:"
     print_info "     /var/lib/rancher/rke2/bin/kubectl get nodes"
     print_info ""
     print_info "If your host enforces fapolicyd, generate matching rules with:"
