@@ -80,25 +80,28 @@ func GetGitServerInfo(ctx context.Context) (*zarfstate.GitServerInfo, error) {
 }
 
 // IsInitialized checks if Zarf is initialized in the cluster by looking for
-// the zarf namespace and the gitea deployment.
-func IsInitialized(ctx context.Context) bool {
+// the zarf namespace and the registry deployment.
+// Returns:
+//   - true, nil: Zarf is initialized
+//   - false, nil: Zarf is not initialized (but cluster is accessible)
+//   - false, error: Cannot determine status (cluster connection failed, etc.)
+func IsInitialized(ctx context.Context) (bool, error) {
 	cluster, err := GetCluster(ctx)
 	if err != nil {
-		slog.Debug("Zarf not initialized: cannot get cluster", "error", err)
-		return false
+		return false, fmt.Errorf("cannot connect to cluster: %w", err)
 	}
 
-	// Check if zarf namespace exists and gitea deployment is present.
-	// The gitea deployment is created by zarf init with git-server component.
+	// Check if zarf namespace exists and registry deployment is present.
+	// The registry deployment is created by zarf init and is fundamental to all operations.
 	k8s := cluster.Clientset
-	_, err = k8s.AppsV1().Deployments("zarf").Get(ctx, "zarf-gitea", metav1.GetOptions{})
+	_, err = k8s.AppsV1().Deployments("zarf").Get(ctx, "zarf-docker-registry", metav1.GetOptions{})
 	if err != nil {
-		slog.Debug("Zarf not initialized: gitea deployment not found", "error", err)
-		return false
+		slog.Debug("Zarf not initialized: registry deployment not found", "error", err)
+		return false, nil
 	}
 
-	slog.Debug("Zarf is initialized (gitea deployment found)")
-	return true
+	slog.Debug("Zarf is initialized (registry deployment found)")
+	return true, nil
 }
 
 func DeployPackages(dir string) error {

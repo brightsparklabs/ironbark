@@ -99,6 +99,14 @@ func serveExec(cmd *cobra.Command, args []string, apiPort int, gitPort int, apiT
 		"apiTimeout", apiTimeout,
 		"gitTimeout", gitTimeout)
 
+	// Initialize KUBECONFIG environment variable if a kubeconfig exists.
+	// This ensures cluster operations can work immediately if a kubeconfig
+	// is mounted or was previously uploaded.
+	if err := api.InitializeKubeconfigEnv(); err != nil {
+		slog.Warn("No kubeconfig available at startup", "details", err)
+		slog.Info("Cluster operations will be available after kubeconfig is uploaded via API")
+	}
+
 	// Create a context that cancels on SIGINT or SIGTERM.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

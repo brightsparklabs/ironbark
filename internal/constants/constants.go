@@ -14,3 +14,6 @@ package constants
 // ArgoCDRepoName is the name of the git repository for the ArgoCD App
 // of Apps.
 const ArgoCDRepoName string = "ironbark-argocd-app-of-apps"
+
+// ArgoCDNamespace is the Kubernetes namespace where ArgoCD is deployed.
+const ArgoCDNamespace string = "bsl-ironbark-argocd"
