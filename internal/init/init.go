@@ -332,7 +332,7 @@ func InitArgoCDApp() error {
 	}
 
 	// Apply the bootstrap App of Apps manifest.
-	bootstrapManifest, err := resources.ReadFile("resources/bootstrap-argocd-app-of-apps.yaml")
+	bootstrapManifest, err := resources.ReadFile("bootstrap-argocd-app-of-apps.yaml")
 	if err != nil {
 		return fmt.Errorf("could not read bootstrap manifest: %w", err)
 	}
