@@ -24,6 +24,7 @@ ARG GOLANG_VERSION=1.26.5
 ARG KUBECTL_VERSION=v1.36.1
 ARG ZARF_VERSION=v0.76.0
 ARG RKE2_VERSION=v1.33.5+rke2r1
+ARG LOCAL_PATH_PROVISIONER_VERSION=v0.0.30
 
 # ------------------------------------------------------------------------------
 # BUILDER STAGE - TOOLING
@@ -111,6 +112,7 @@ FROM ${UBUNTU_IMAGE} AS builder-rke2-artifacts
 
 ARG ARCH
 ARG RKE2_VERSION
+ARG LOCAL_PATH_PROVISIONER_VERSION
 
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 
@@ -164,11 +166,41 @@ RUN curl --fail --silent --show-error --location --retry 3 \
 # Verify checksums of downloaded artifacts.
 RUN sha256sum -c --ignore-missing "sha256sum-${ARCH}.txt"
 
-# Write RKE2 version to JSON file for clarity.
-RUN echo "{\"version\": {\"rke2\": \"${RKE2_VERSION}\"}}" > VERSION.json
+# Install skopeo and zstd for pulling and compressing the local-path-provisioner image.
+RUN apt-get update \
+      && apt-get install -y --no-install-recommends \
+        skopeo \
+        zstd
+
+# Download local-path-provisioner image for CSI driver.
+# This is saved and loaded during RKE2 bootstrap to provide persistent storage.
+# We use skopeo to pull the image without needing a Docker daemon.
+RUN skopeo copy \
+      docker://rancher/local-path-provisioner:${LOCAL_PATH_PROVISIONER_VERSION} \
+      docker-archive:/tmp/local-path-provisioner.tar:rancher/local-path-provisioner:${LOCAL_PATH_PROVISIONER_VERSION} \
+      && zstd -T0 -19 /tmp/local-path-provisioner.tar \
+      -o "rke2-images-local-path.linux-${ARCH}.tar.zst" \
+      && rm /tmp/local-path-provisioner.tar
+
+RUN cat > VERSION.json <<EOF
+{
+  "ironbark": "rke2-variant",
+  "tools": {
+    "rke2": "${RKE2_VERSION}",
+    "local-path-provisioner": "${LOCAL_PATH_PROVISIONER_VERSION}"
+  }
+}
+EOF
 
 # Copy the RKE2 configuration template.
 COPY resources/resources/rke2-config.yaml.tmpl config.yaml.template
+
+# Copy the Cilium configuration for kube-proxy replacement.
+# This configures Cilium to use localhost for API access, avoiding firewall issues.
+COPY resources/resources/rke2-cilium-config.yaml.tmpl rke2-cilium-config.yaml
+
+# Copy the CSI manifest so it's included in the extracted RKE2 artifacts.
+COPY resources/resources/csi-local-path-provisioner.yaml.tmpl csi-local-path-provisioner.yaml
 
 # ------------------------------------------------------------------------------
 # BUILDER STAGE - GOLANG
@@ -236,6 +268,24 @@ ARG BUILD_DATE
 ARG VCS_REF
 ARG KUBECTL_VERSION
 ARG ZARF_VERSION
+ARG RKE2_VERSION
+ARG LOCAL_PATH_PROVISIONER_VERSION
+
+# Create comprehensive VERSION.json file with all tool versions.
+# This file is included in all Ironbark image variants for version tracking.
+RUN mkdir -p /app && cat > /app/VERSION.json <<EOF
+{
+  "ironbark": "${APP_VERSION}",
+  "build_date": "${BUILD_DATE}",
+  "vcs_ref": "${VCS_REF}",
+  "tools": {
+    "kubectl": "${KUBECTL_VERSION}",
+    "zarf": "${ZARF_VERSION}",
+    "rke2": "${RKE2_VERSION}",
+    "local-path-provisioner": "${LOCAL_PATH_PROVISIONER_VERSION}"
+  }
+}
+EOF
 
 # `IRONBARK_IN_CONTAINER` is baked into the image so any process started from
 # this image (whether via the launcher script or an ad-hoc `podman run`) can
@@ -272,14 +322,6 @@ WORKDIR /tmp
 WORKDIR /app
 COPY --from=builder-tooling /build/ .
 COPY --from=builder-golang /build/build/bin/ironbark bin/
-
-# Create version file documenting all bundled tools.
-# The file is copied into the final image below.
-RUN printf '{"version": {"ironbark": "%s", "kubectl": "%s", "zarf": "%s"}}\n' \
-      "${APP_VERSION}" \
-      "${KUBECTL_VERSION}" \
-      "${ZARF_VERSION}" \
-      > VERSION.json
 
 # Default to running in serve mode (API server).
 # Users can override by specifying a command: docker run ... ironbark init all
@@ -321,7 +363,7 @@ ENV IRONBARK_RKE2_AVAILABLE=true
 
 # Copy RKE2 artifacts from the RKE2 builder stage to /app/resources/rke2.
 # This path is consistent with other resources and used by the artifact download API.
-COPY --from=builder-rke2-artifacts /build/ resources/rke2/
+COPY --from=builder-rke2-artifacts /build/resources/rke2/ resources/rke2/
 
 LABEL org.label-schema.name="ironbark-rke2" \
       org.label-schema.description="Kubernetes management using the brightSPARK Labs opinionated deployment pattern (RKE2)" \

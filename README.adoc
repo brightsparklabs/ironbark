@@ -49,7 +49,7 @@ If you need to install Kubernetes in an air-gapped environment, see <<Air-gapped
 [source,bash]
 ----
 # Start Ironbark in API server mode.
-podman run -d \
+podman run -d --rm \
   --name ironbark \
   --port 8080:8080 \
   --port 3000:3000 \
@@ -529,13 +529,47 @@ This section covers installing Kubernetes in an air-gapped environment using art
 
 RKE2 is Rancher's security-focused Kubernetes distribution, ideal for air-gapped and compliance-driven environments.
 
+==== Configure firewall for pod network access
+
+The firewall must be configured to allow pods to communicate with the host.
+Without this configuration, pods cannot reach the Kubernetes API server, causing CoreDNS and other system components to fail.
+
+===== For firewalld (Rocky Linux, RHEL, CentOS):
+
+[source,bash]
+----
+# Add pod network to trusted zone.
+sudo firewall-cmd --zone=trusted --add-source=10.42.0.0/16 --permanent
+sudo firewall-cmd --zone=trusted --add-source=10.43.0.0/16 --permanent
+
+# Reload firewall to apply changes.
+sudo firewall-cmd --reload
+
+# Verify configuration.
+sudo firewall-cmd --list-all --zone=trusted
+----
+
+===== For ufw (Ubuntu, Debian):
+
+[source,bash]
+----
+# Allow traffic from pod network.
+sudo ufw allow from 10.42.0.0/16
+
+# Verify configuration.
+sudo ufw status
+----
+
+NOTE: The pod network CIDR `10.42.0.0/16` and service network CIDR `10.43.0.0/16` are RKE2's default.
+If you intend to customise the CIDRs in your RKE2 configuration, use those value instead.
+
 ==== Install RKE2
 
 . Start the Ironbark RKE2 container:
 +
 [source,bash]
 ----
-podman run -d \
+podman run -d --rm \
   --name ironbark \
   --network host \
   docker.io/brightsparklabs/ironbark-rke2:latest
@@ -549,24 +583,7 @@ mkdir -p ~/rke2-setup
 cd ~/rke2-setup
 curl -o rke2.tar.gz http://localhost:8080/ironbark/api/v1/artifact/rke2
 tar -xzf rke2.tar.gz
-cd rke2/resources/rke2
-----
-
-. Configure RKE2 to use Cilium CNI:
-+
-[source,bash]
-----
-sudo mkdir -p /etc/rancher/rke2
-sudo cp config.yaml.template /etc/rancher/rke2/config.yaml
-----
-
-. Install RKE2 from local artifacts (air-gapped):
-+
-[source,bash]
-----
-sudo INSTALL_RKE2_TYPE=server \
-  INSTALL_RKE2_ARTIFACT_PATH=$(pwd) \
-  sh install.sh
+cd rke2/
 ----
 
 . Copy container image tarballs to RKE2:
@@ -579,40 +596,61 @@ sudo cp rke2-images-*.tar.zst /var/lib/rancher/rke2/agent/images/
 +
 IMPORTANT: Both `rke2-images-cilium` and `rke2-images-core` tarballs are required for air-gapped deployment.
 
-. Configure firewall for pod network access:
+. Configure RKE2 to use Cilium CNI:
 +
-The firewall must be configured to allow pods to communicate with the host.
-Without this configuration, pods cannot reach the Kubernetes API server, causing CoreDNS and other system components to fail.
+The Ironbark RKE2 variant includes a Cilium configuration that enables kube-proxy replacement and configures Cilium to use localhost for Kubernetes API access (avoiding firewall issues).
 +
---
-*For firewalld (Rocky Linux, RHEL, CentOS):*
-
 [source,bash]
 ----
-# Add pod network to trusted zone.
-sudo firewall-cmd --zone=trusted --add-source=10.42.0.0/16 --permanent
+sudo mkdir -p /etc/rancher/rke2
+sudo cp config.yaml.template /etc/rancher/rke2/config.yaml
 
-# Reload firewall to apply changes.
-sudo firewall-cmd --reload
-
-# Verify configuration.
-sudo firewall-cmd --list-all --zone=trusted
+# Copy Cilium config to RKE2 manifests directory.
+sudo mkdir -p /var/lib/rancher/rke2/server/manifests
+sudo cp rke2-cilium-config.yaml /var/lib/rancher/rke2/server/manifests/
 ----
 
-*For ufw (Ubuntu, Debian):*
-
+. Deploy CSI driver manifest for persistent storage:
++
+The Ironbark RKE2 variant includes Rancher's local-path-provisioner CSI driver, which provides dynamic persistent volume provisioning using local node storage.
++
 [source,bash]
 ----
-# Allow traffic from pod network.
-sudo ufw allow from 10.42.0.0/16
-
-# Verify configuration.
-sudo ufw status
+# Copy CSI manifest to RKE2 auto-apply directory.
+sudo mkdir -p /var/lib/rancher/rke2/server/manifests
+sudo cp csi-local-path-provisioner.yaml /var/lib/rancher/rke2/server/manifests/
 ----
---
 +
-NOTE: The pod network CIDR `10.42.0.0/16` is RKE2's default.
-If you have customised the pod CIDR in your RKE2 configuration, use that value instead.
+The CSI driver will be automatically deployed when RKE2 starts.
+It creates a default StorageClass named `local-path` with the following characteristics:
++
+--
+* *Provisioner:* `rancher.io/local-path`
+* *Reclaim Policy:* `Retain` (volumes persist after PVC deletion)
+* *Volume Binding Mode:* `Immediate` (volumes bound immediately when PVC is created)
+* *Storage Path:* `/opt/local-path-provisioner` (on each node)
+* *Default StorageClass:* Yes (PVCs without explicit storageClassName will use this)
+--
+
+. Make any desired changes to the configuration files:
+[horizontal]
+RKE2::: `/etc/rancher/rke2/config.yaml`
+CNI::: `/var/lib/rancher/rke2/server/manifests/rke2-cilium-config.yaml`
+CSI::: `/var/lib/rancher/rke2/server/manifests/csi-local-path-provisioner.yaml`
++
+[IMPORTANT]
+--
+Make the desired modifications **before** starting RKE2.
+--
+
+. Install RKE2 from local artifacts:
++
+[source,bash]
+----
+sudo INSTALL_RKE2_TYPE=server \
+  INSTALL_RKE2_ARTIFACT_PATH=$(pwd) \
+  sh install.sh
+----
 
 . Start RKE2:
 +
@@ -632,8 +670,6 @@ sudo chown $(id -u):$(id -g) ~/.kube/config
 export PATH=$PATH:/var/lib/rancher/rke2/bin
 ----
 
-==== Initialise Cluster
-
 . Verify cluster is operational:
 +
 [source,bash]
@@ -641,6 +677,41 @@ export PATH=$PATH:/var/lib/rancher/rke2/bin
 kubectl get nodes
 kubectl get pods -A
 ----
+
+. Verify CSI driver is deployed and working:
++
+[source,bash]
+----
+# Check local-path-provisioner pod is running.
+kubectl get pods -n local-path-storage
+
+# Verify default StorageClass is created.
+kubectl get storageclass local-path
+
+# Optional: Test PVC creation.
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: test-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+EOF
+
+# Verify PVC is bound.
+kubectl get pvc test-pvc
+
+# Clean up test PVC.
+kubectl delete pvc test-pvc
+----
++
+The CSI driver is working correctly if the `local-path-provisioner` pod is Running and the test PVC shows status `Bound`.
+
+==== Deploy Ironbark
 
 . Upload kubeconfig to Ironbark:
 +
@@ -661,6 +732,16 @@ curl -X POST http://localhost:8080/ironbark/api/v1/init
 
 For K3s deployment, use the default Ironbark image with zarf-init:
 
+. Start the Ironbark container:
++
+[source,bash]
+----
+podman run -d --rm \
+  --name ironbark \
+  --network host \
+  docker.io/brightsparklabs/ironbark:latest
+----
+
 . Download zarf-init package:
 +
 [source,bash]
@@ -675,7 +756,7 @@ curl -O http://localhost:8080/ironbark/api/v1/artifact/zarf-init
 zarf init --components=git-server --confirm zarf-init-amd64-*.tar.zst
 ----
 
-. Continue with <<Initialise Cluster>> from the RKE2 workflow above.
+. Continue with <<Deploy Ironbark>> from the RKE2 workflow above.
 
 [appendix]
 == Usage via CLI
