@@ -20,8 +20,8 @@ import (
 	"brightsparklabs.com/ironbark/resources"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	v1ac "k8s.io/client-go/applyconfigurations/core/v1"
 )
 
 // -----------------------------------------------------------------------------
@@ -172,6 +172,13 @@ func InitPackages(ctx context.Context) error {
 // InitArgoCDRepoSecrets creates ArgoCD repository secrets for accessing
 // the internal Zarf Git and OCI registry.
 // Requires Zarf to be initialized first.
+//
+// This creates three secrets using cluster-internal service DNS names:
+//  1. repository-zarf-helm-oci-http - Internal registry (HTTP)
+//  2. repository-zarf-helm-oci-https - TLS proxy registry (HTTPS)
+//  3. repository-zarf-git-http - Git server
+//
+// All secrets include "zarf.dev/agent": "ignore" to bypass Zarf agent webhook validation.
 func InitArgoCDRepoSecrets(ctx context.Context) error {
 	slog.Info("Adding ArgoCD repository secrets...")
 
@@ -182,76 +189,80 @@ func InitArgoCDRepoSecrets(ctx context.Context) error {
 
 	zarfCluster, err := zarf.GetCluster(ctx)
 	if err != nil {
-		return fmt.Errorf("could not get cluster: %w", err)
+		return fmt.Errorf("could not load zarf cluster: %w", err)
 	}
 
-	zarfState, err := zarfCluster.LoadState(ctx)
+	registryInfo, err := zarf.GetRegistryInfo(ctx)
 	if err != nil {
-		return fmt.Errorf("could not get zarf state: %w", err)
+		return fmt.Errorf("could not load zarf registry info: %w", err)
 	}
 
-	gitServerInfo := zarfState.GitServer
-	registryInfo := zarfState.RegistryInfo
-
-	k8s := zarfCluster.Clientset
-
-	namespace := "bsl-ironbark-argocd"
-
-	// Create Git repository secret.
-	gitSecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "repository-zarf-git-http",
-			Namespace: namespace,
-			Labels: map[string]string{
-				"argocd.argoproj.io/secret-type": "repository",
-			},
-		},
-		StringData: map[string]string{
-			"url":      gitServerInfo.Address,
-			"username": gitServerInfo.PushUsername,
-			"password": gitServerInfo.PushPassword,
-		},
-	}
-
-	_, err = k8s.CoreV1().Secrets(namespace).Create(ctx, gitSecret, metav1.CreateOptions{})
+	gitInfo, err := zarf.GetGitServerInfo(ctx)
 	if err != nil {
-		if !strings.Contains(err.Error(), "already exists") {
-			return fmt.Errorf("failed to create Git repository secret: %w", err)
-		}
-		slog.Info("Git repository secret already exists, skipping")
-	} else {
-		slog.Info("Created Git repository secret")
+		return fmt.Errorf("could not load zarf git server info: %w", err)
 	}
 
-	// Create OCI registry secret.
-	registrySecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "repository-zarf-helm-oci-http",
-			Namespace: namespace,
-			Labels: map[string]string{
-				"argocd.argoproj.io/secret-type": "repository",
-			},
-		},
-		StringData: map[string]string{
-			"type":          "helm",
-			"name":          "zarf-registry",
-			"url":           registryInfo.Address,
-			"username":      registryInfo.PullUsername,
-			"password":      registryInfo.PullPassword,
-			"enableOCI":     "true",
-			"tlsClientCert": "",
-			"tlsClientKey":  "",
-		},
-	}
-
-	_, err = k8s.CoreV1().Secrets(namespace).Create(ctx, registrySecret, metav1.CreateOptions{})
+	// Secret 1: Helm OCI HTTP (internal cluster registry).
+	slog.Info("Adding Helm OCI HTTP", "url", "zarf-docker-registry.zarf.svc.cluster.local:5000")
+	helmSecret := v1ac.Secret("repository-zarf-helm-oci-http", constants.ArgoCDNamespace).
+		WithLabels(map[string]string{
+			"argocd.argoproj.io/secret-type": "repository",
+			"zarf.dev/agent":                 "ignore",
+		}).
+		WithData(map[string][]byte{
+			"url":       []byte("zarf-docker-registry.zarf.svc.cluster.local:5000"),
+			"username":  []byte(registryInfo.PullUsername),
+			"password":  []byte(registryInfo.PullPassword),
+			"type":      []byte("helm"),
+			"enableOCI": []byte("true"),
+			"insecure":  []byte("true"),
+			// TODO: Does not seem to do anything.
+			"insecureOCIForceHttp": []byte("true"),
+		})
+	_, err = zarfCluster.Clientset.CoreV1().Secrets(*helmSecret.Namespace).Apply(
+		ctx, helmSecret, metav1.ApplyOptions{Force: true, FieldManager: "ironbark"})
 	if err != nil {
-		if !strings.Contains(err.Error(), "already exists") {
-			return fmt.Errorf("failed to create OCI registry secret: %w", err)
-		}
-		slog.Info("OCI registry secret already exists, skipping")
-	} else {
-		slog.Info("Created OCI registry secret")
+		return fmt.Errorf("could not create ArgoCD zarf registry secret: %w", err)
+	}
+
+	// Secret 2: Helm OCI HTTPS (TLS proxy).
+	slog.Info("Adding Helm OCI HTTPS", "url", "internal-tls-proxy.bsl-ironbark-internal-tls-proxy.svc.cluster.local")
+	helmTlsSecret := v1ac.Secret("repository-zarf-helm-oci-https", constants.ArgoCDNamespace).
+		WithLabels(map[string]string{
+			"argocd.argoproj.io/secret-type": "repository",
+			"zarf.dev/agent":                 "ignore",
+		}).
+		WithData(map[string][]byte{
+			"url":       []byte("internal-tls-proxy.bsl-ironbark-internal-tls-proxy.svc.cluster.local"),
+			"username":  []byte(registryInfo.PullUsername),
+			"password":  []byte(registryInfo.PullPassword),
+			"type":      []byte("helm"),
+			"enableOCI": []byte("true"),
+			"insecure":  []byte("true"),
+		})
+	_, err = zarfCluster.Clientset.CoreV1().Secrets(*helmTlsSecret.Namespace).Apply(
+		ctx, helmTlsSecret, metav1.ApplyOptions{Force: true, FieldManager: "ironbark"})
+	if err != nil {
+		return fmt.Errorf("could not create ArgoCD zarf registry TLS secret: %w", err)
+	}
+
+	// Secret 3: Git HTTP.
+	slog.Info("Adding Git HTTP", "url", "http://zarf-gitea-http.zarf.svc.cluster.local:3000/zarf-git-user/ironbark-argocd-app-of-apps")
+	gitSecret := v1ac.Secret("repository-zarf-git-http", constants.ArgoCDNamespace).
+		WithLabels(map[string]string{
+			"argocd.argoproj.io/secret-type": "repository",
+			"zarf.dev/agent":                 "ignore",
+		}).
+		WithData(map[string][]byte{
+			"url":      []byte("http://zarf-gitea-http.zarf.svc.cluster.local:3000/zarf-git-user/ironbark-argocd-app-of-apps"),
+			"username": []byte(gitInfo.PushUsername),
+			"password": []byte(gitInfo.PushPassword),
+			"type":     []byte("git"),
+		})
+	_, err = zarfCluster.Clientset.CoreV1().Secrets(*gitSecret.Namespace).Apply(
+		ctx, gitSecret, metav1.ApplyOptions{Force: true, FieldManager: "ironbark"})
+	if err != nil {
+		return fmt.Errorf("could not create ArgoCD zarf git server secret: %w", err)
 	}
 
 	slog.Info("Successfully added ArgoCD repository secrets")
