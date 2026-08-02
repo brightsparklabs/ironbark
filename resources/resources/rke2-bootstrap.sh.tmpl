@@ -147,15 +147,31 @@ function main() {
     fi
 
     # Copy CSI manifest to RKE2 manifests directory for auto-deployment.
-    print_info "Installing local-path-provisioner CSI driver manifest..."
-    local csi_manifest_source="${IRONBARK_SCRIPT_RKE2_OUTPUT_DIR}/csi-local-path-provisioner.yaml"
+    # Detect RKE2 variant from environment variable (default: local-path).
+    local variant="${IRONBARK_RKE2_VARIANT:-local-path}"
+    local csi_manifest_source
+    local csi_manifest_dest
+    local csi_description
+
+    if [[ "${variant}" == "ceph" ]]; then
+        print_info "Installing Rook-Ceph CSI driver manifest..."
+        csi_manifest_source="${IRONBARK_SCRIPT_RKE2_OUTPUT_DIR}/csi-rook-ceph.yaml"
+        csi_manifest_dest="csi-rook-ceph.yaml"
+        csi_description="Rook-Ceph cluster will be deployed automatically when RKE2 starts."
+    else
+        print_info "Installing local-path-provisioner CSI driver manifest..."
+        csi_manifest_source="${IRONBARK_SCRIPT_RKE2_OUTPUT_DIR}/csi-local-path-provisioner.yaml"
+        csi_manifest_dest="csi-local-path-provisioner.yaml"
+        csi_description="Local-path-provisioner will be deployed automatically when RKE2 starts."
+    fi
+
     local rke2_manifests_dir="/var/lib/rancher/rke2/server/manifests"
 
     if [[ -f "${csi_manifest_source}" ]]; then
         if [[ -d "${rke2_manifests_dir}" ]]; then
-            if sudo cp "${csi_manifest_source}" "${rke2_manifests_dir}/csi-local-path-provisioner.yaml"; then
-                print_info "CSI manifest installed to ${rke2_manifests_dir}/csi-local-path-provisioner.yaml"
-                print_info "Local-path-provisioner will be deployed automatically when RKE2 starts."
+            if sudo cp "${csi_manifest_source}" "${rke2_manifests_dir}/${csi_manifest_dest}"; then
+                print_info "CSI manifest installed to ${rke2_manifests_dir}/${csi_manifest_dest}"
+                print_info "${csi_description}"
             else
                 print_info "Note: Could not copy CSI manifest to ${rke2_manifests_dir}."
                 print_info "You can manually copy it after RKE2 installation:"

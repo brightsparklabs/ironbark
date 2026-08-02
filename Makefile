@@ -94,7 +94,7 @@ build/bin/ironbark: $(BUILD_INPUTS) README.adoc
 		&& CGO_ENABLED=0 GOOS=linux go build -ldflags "$(GO_LDFLAGS)" -o build/bin/ironbark .
 
 .PHONY: oci-image
-oci-image: oci-image-k3s oci-image-rke2 ## Build both K3s and RKE2 variant OCI images.
+oci-image: oci-image-k3s oci-image-rke2 oci-image-rke2-ceph ## Build K3s, RKE2, and RKE2 Ceph variant OCI images.
 
 .PHONY: oci-image-k3s
 oci-image-k3s: ## Build K3s variant OCI image.
@@ -118,8 +118,19 @@ oci-image-rke2: ## Build RKE2 variant OCI image.
 		-t brightsparklabs/$(APP_NAME)-rke2:$(APP_VERSION) \
 		-t brightsparklabs/$(APP_NAME)-rke2:latest .
 
+.PHONY: oci-image-rke2-ceph
+oci-image-rke2-ceph: ## Build RKE2 Ceph variant OCI image.
+	docker build \
+		--target ironbark-rke2-ceph \
+		--build-arg APP_VERSION=$(APP_VERSION) \
+		--build-arg BUILD_DATE=$(BUILD_DATE) \
+		--build-arg BUILD_TIME_UTC=$(BUILD_TIME_UTC) \
+		--build-arg VCS_REF=$(VCS_REF) \
+		-t brightsparklabs/$(APP_NAME)-rke2-ceph:$(APP_VERSION) \
+		-t brightsparklabs/$(APP_NAME)-rke2-ceph:latest .
+
 .PHONY: oci-image-save
-oci-image-save: oci-image-k3s-save oci-image-rke2-save ## Save both K3s and RKE2 variant OCI images.
+oci-image-save: oci-image-k3s-save oci-image-rke2-save oci-image-rke2-ceph-save ## Save K3s, RKE2, and RKE2 Ceph variant OCI images.
 
 .PHONY: oci-image-k3s-save
 oci-image-k3s-save: oci-image-k3s ## Save K3s variant OCI images.
@@ -134,6 +145,13 @@ oci-image-rke2-save: oci-image-rke2 ## Save RKE2 variant OCI images.
 	docker save \
 		brightsparklabs/$(APP_NAME)-rke2:$(APP_VERSION) \
 		-o build/images/oci-brightsparklabs-$(APP_NAME)-rke2-$(APP_VERSION).tar
+
+.PHONY: oci-image-rke2-ceph-save
+oci-image-rke2-ceph-save: oci-image-rke2-ceph ## Save RKE2 Ceph variant OCI images.
+	mkdir -p build/images
+	docker save \
+		brightsparklabs/$(APP_NAME)-rke2-ceph:$(APP_VERSION) \
+		-o build/images/oci-brightsparklabs-$(APP_NAME)-rke2-ceph-$(APP_VERSION).tar
 
 # ------------------------------------------------------------------------------
 # Multi-arch OCI Image Targets (using buildx)
@@ -157,7 +175,7 @@ oci-image-rke2-save: oci-image-rke2 ## Save RKE2 variant OCI images.
 # - This separation keeps CI simple while providing rich local dev environment
 
 .PHONY: oci-image-buildx
-oci-image-buildx: oci-image-k3s-buildx oci-image-rke2-buildx ## Build both K3s and RKE2 multi-arch OCI images.
+oci-image-buildx: oci-image-k3s-buildx oci-image-rke2-buildx oci-image-rke2-ceph-buildx ## Build K3s, RKE2, and RKE2 Ceph multi-arch OCI images.
 
 .PHONY: oci-image-k3s-buildx
 oci-image-k3s-buildx: ## Build K3s variant multi-arch OCI image (linux/amd64,linux/arm64).
@@ -184,6 +202,19 @@ oci-image-rke2-buildx: ## Build RKE2 variant multi-arch OCI image (linux/amd64,l
 		--load \
 		-t brightsparklabs/$(APP_NAME)-rke2:$(APP_VERSION) \
 		-t brightsparklabs/$(APP_NAME)-rke2:latest .
+
+.PHONY: oci-image-rke2-ceph-buildx
+oci-image-rke2-ceph-buildx: ## Build RKE2 Ceph variant multi-arch OCI image (linux/amd64,linux/arm64).
+	docker buildx build \
+		--target ironbark-rke2-ceph \
+		--build-arg APP_VERSION=$(APP_VERSION) \
+		--build-arg BUILD_DATE=$(BUILD_DATE) \
+		--build-arg BUILD_TIME_UTC=$(BUILD_TIME_UTC) \
+		--build-arg VCS_REF=$(VCS_REF) \
+		--platform linux/amd64,linux/arm64 \
+		--load \
+		-t brightsparklabs/$(APP_NAME)-rke2-ceph:$(APP_VERSION) \
+		-t brightsparklabs/$(APP_NAME)-rke2-ceph:latest .
 
 .PHONY: oci-image-push
 oci-image-push: oci-image-k3s-push oci-image-rke2-push ## Build and push both K3s and RKE2 multi-arch images to DockerHub.
