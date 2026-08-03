@@ -50,6 +50,12 @@ data:
   # The logging level for the operator: ERROR | WARNING | INFO | DEBUG
   ROOK_LOG_LEVEL: "INFO"
 
+  # Whether to start pods as privileged that mount a host path.
+  # This is required for SELinux compatibility to allow Ceph daemon pods (mon/osd/mgr)
+  # to write to hostPath volumes with SELinux enforcing.
+  # Set to true if SELinux is enabled (e.g. Rocky Linux, RHEL, CentOS, OpenShift).
+  ROOK_HOSTPATH_REQUIRES_PRIVILEGED: "true"
+
   # The address for the operator's controller-runtime metrics. 0 is disabled. :8080 serves metrics on port 8080.
   ROOK_OPERATOR_METRICS_BIND_ADDRESS: "0"
 
