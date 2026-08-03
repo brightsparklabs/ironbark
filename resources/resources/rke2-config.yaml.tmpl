@@ -1,6 +1,11 @@
 # RKE2 server configuration
 # See: https://docs.rke2.io/install/configuration
 
+# Enable SELinux support.
+# This configures RKE2 to work properly with SELinux enforcing mode.
+# Required for RHEL, Rocky Linux, CentOS, and other SELinux-enabled distributions.
+selinux: true
+
 # Use Cilium as the CNI (Container Network Interface).
 # Cilium provides eBPF-based networking, security, and observability.
 cni: cilium
