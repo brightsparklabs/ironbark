@@ -612,7 +612,7 @@ sudo ufw status
 NOTE: The pod network CIDR `10.42.0.0/16` and service network CIDR `10.43.0.0/16` are RKE2's default.
 If you intend to customise the CIDRs in your RKE2 configuration, use those value instead.
 
-==== Install RKE2
+==== Extract RKE2 artifacts
 
 . Start the Ironbark RKE2 container:
 For local-path variant (default):::
@@ -712,28 +712,26 @@ Replication:: 3 replicas (production-grade HA)
 +
 Ceph cluster initialisation takes 5-10 minutes after RKE2 starts.
 Verify with:
-
++
 [source,bash]
 ----
 kubectl -n rook-ceph get cephcluster
 ----
---
 
-. {empty} 
-+
-IMPORTANT: Make any desired changes to the configuration files:
+==== Configure RKE2
+
+IMPORTANT: Any configuration changes for RKE2 must be done now, *before* starting RKE2.
+
+Make any desired changes to the configuration files:
 
 [horizontal]
-RKE2::: `/etc/rancher/rke2/config.yaml`
-CNI::: `/var/lib/rancher/rke2/server/manifests/rke2-cilium-config.yaml`
-CSI (local-path)::: `/var/lib/rancher/rke2/server/manifests/csi-local-path-provisioner.yaml`
-CSI (Ceph CRDs)::: `/var/lib/rancher/rke2/server/manifests/csi-rook-ceph-crds.yaml`
-CSI (Ceph Cluster)::: `/var/lib/rancher/rke2/server/manifests/csi-rook-ceph.yaml`
-+
-[IMPORTANT]
---
-Make the desired modifications **before** starting RKE2.
---
+RKE2:: `/etc/rancher/rke2/config.yaml`
+CNI:: `/var/lib/rancher/rke2/server/manifests/rke2-cilium-config.yaml`
+CSI (local-path):: `/var/lib/rancher/rke2/server/manifests/csi-local-path-provisioner.yaml`
+CSI (Ceph CRDs):: `/var/lib/rancher/rke2/server/manifests/csi-rook-ceph-crds.yaml`
+CSI (Ceph Cluster):: `/var/lib/rancher/rke2/server/manifests/csi-rook-ceph.yaml`
+
+==== Install RKE2
 
 . Install RKE2 from local artifacts:
 +
