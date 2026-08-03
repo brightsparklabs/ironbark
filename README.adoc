@@ -571,7 +571,12 @@ Network::
 Configuration::
 The Ceph cluster auto-discovers and uses all available raw devices.
 Customise via CephCluster CR in deployed manifest if needed.
-Monitor Ceph cluster health: `kubectl -n rook-ceph exec -it deploy/rook-ceph-tools -- ceph status`
+Monitor Ceph cluster health:
++
+[source,bash]
+----
+kubectl -n rook-ceph exec -it deploy/rook-ceph-tools -- ceph status
+----
 
 ==== Configure firewall for pod network access
 
@@ -610,8 +615,7 @@ If you intend to customise the CIDRs in your RKE2 configuration, use those value
 ==== Install RKE2
 
 . Start the Ironbark RKE2 container:
-+
-For local-path variant (default):
+For local-path variant (default):::
 +
 [source,bash]
 ----
@@ -620,8 +624,7 @@ podman run -d --rm \
   --network host \
   docker.io/brightsparklabs/ironbark-rke2:latest
 ----
-+
-For Ceph variant:
+For Ceph variant:::
 +
 [source,bash]
 ----
@@ -670,8 +673,8 @@ sudo cp rke2-cilium-config.yaml /var/lib/rancher/rke2/server/manifests/
 +
 The extracted RKE2 artifacts include a CSI driver manifest that will be automatically deployed when RKE2 starts.
 The specific CSI driver depends on the Ironbark image variant you are using:
-+
-For local-path variant:
+
+For local-path variant:::
 +
 [source,bash]
 ----
@@ -681,38 +684,51 @@ sudo cp csi-local-path-provisioner.yaml /var/lib/rancher/rke2/server/manifests/
 ----
 +
 --
-* *Provisioner:* `rancher.io/local-path`
-* *StorageClass:* `local-path` (default)
-* *Reclaim Policy:* `Retain` (volumes persist after PVC deletion)
-* *Volume Binding Mode:* `Immediate`
-* *Storage Path:* `/opt/local-path-provisioner` (on each node)
+[horizontal]
+Provisioner:: `rancher.io/local-path`
+StorageClass:: `local-path` (default)
+Reclaim Policy:: `Retain` (volumes persist after PVC deletion)
+Volume Binding Mode:: `Immediate`
+Storage Path:: `/opt/local-path-provisioner` (on each node)
 --
-+
 For Ceph variant:
 +
 [source,bash]
 ----
-# Copy Rook-Ceph manifest to RKE2 auto-apply directory.
+# Copy Rook-Ceph manifests to RKE2 auto-apply directory.
 sudo mkdir -p /var/lib/rancher/rke2/server/manifests
+sudo cp csi-rook-ceph-crds.yaml /var/lib/rancher/rke2/server/manifests/
 sudo cp csi-rook-ceph.yaml /var/lib/rancher/rke2/server/manifests/
 ----
 +
 --
-* *Provisioner:* `rook-ceph.rbd.csi.ceph.com`
-* *StorageClass:* `rook-ceph-block` (default)
-* *Reclaim Policy:* `Retain`
-* *Volume Binding Mode:* `Immediate`
-* *Replication:* 3 replicas (production-grade HA)
-* *Note:* Ceph cluster initialisation takes 5-10 minutes after RKE2 starts.
-Verify with: `kubectl -n rook-ceph get cephcluster`
+[horizontal]
+Provisioner:: `rook-ceph.rbd.csi.ceph.com`
+StorageClass:: `rook-ceph-block` (default)
+Reclaim Policy:: `Retain`
+Volume Binding Mode:: `Immediate`
+Replication:: 3 replicas (production-grade HA)
+--
++
+Ceph cluster initialisation takes 5-10 minutes after RKE2 starts.
+Verify with:
+
+[source,bash]
+----
+kubectl -n rook-ceph get cephcluster
+----
 --
 
-. Make any desired changes to the configuration files:
+. {empty} 
++
+IMPORTANT: Make any desired changes to the configuration files:
+
 [horizontal]
 RKE2::: `/etc/rancher/rke2/config.yaml`
 CNI::: `/var/lib/rancher/rke2/server/manifests/rke2-cilium-config.yaml`
 CSI (local-path)::: `/var/lib/rancher/rke2/server/manifests/csi-local-path-provisioner.yaml`
-CSI (Ceph)::: `/var/lib/rancher/rke2/server/manifests/csi-rook-ceph.yaml`
+CSI (Ceph CRDs)::: `/var/lib/rancher/rke2/server/manifests/csi-rook-ceph-crds.yaml`
+CSI (Ceph Cluster)::: `/var/lib/rancher/rke2/server/manifests/csi-rook-ceph.yaml`
 +
 [IMPORTANT]
 --
