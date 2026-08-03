@@ -1,0 +1,105 @@
+---
+# Rook-Ceph Operator HelmChart for air-gapped RKE2 deployment.
+#
+# This HelmChart CRD tells RKE2's Helm controller to deploy the Rook operator
+# using the packaged Helm chart. This avoids issues with the RKE2 Addon controller
+# stripping out critical Deployment configurations (volume mounts, env vars, etc.).
+#
+# The chart is deployed from the local filesystem (/var/lib/rancher/rke2/server/static/charts/)
+# where RKE2 extracts packaged Helm charts from the image tarball.
+#
+# References:
+# - https://docs.rke2.io/helm
+# - https://rook.io/docs/rook/latest/Helm-Charts/operator-chart/
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: rook-ceph
+  namespace: kube-system
+spec:
+  # Use the local chart file packaged in the image.
+  # RKE2 expects charts to be in /var/lib/rancher/rke2/server/static/charts/
+  chart: /var/lib/rancher/rke2/server/static/charts/rook-ceph-v1.15.8.tgz
+  
+  # Deploy to rook-ceph namespace (will be created automatically).
+  targetNamespace: rook-ceph
+  createNamespace: true
+  
+  # Helm release name.
+  releaseName: rook-ceph
+  
+  # Set bootstrap to true to ensure this deploys during initial cluster setup.
+  bootstrap: true
+  
+  # Helm values to configure the Rook operator for production air-gapped deployment.
+  valuesContent: |-
+    # Enable SELinux relabeling to work with enforcing mode.
+    # This allows Ceph daemons to access hostPath volumes on SELinux-enabled systems.
+    enableSelinuxRelabeling: true
+    
+    # Set hostpathRequiresPrivileged to allow Ceph daemons to create directories
+    # on hostPath volumes. Required for /var/lib/rook directory creation.
+    hostpathRequiresPrivileged: true
+    
+    # Use the Ceph images from our pre-loaded tarball.
+    # RKE2 will have already loaded these from rke2-images-rook-ceph.linux-*.tar.zst
+    image:
+      repository: rook/ceph
+      tag: v1.15.8
+      pullPolicy: IfNotPresent
+    
+    # Configure CSI driver images (also pre-loaded from tarball).
+    csi:
+      enableRbdDriver: true
+      enableCephfsDriver: true
+      enableGrpcMetrics: false
+      
+      # Use pre-loaded images from tarball.
+      csiRBDProvisionerResource: |
+        - name: csi-provisioner
+          image: registry.k8s.io/sig-storage/csi-provisioner:v5.2.0
+        - name: csi-resizer
+          image: registry.k8s.io/sig-storage/csi-resizer:v1.13.2
+        - name: csi-attacher
+          image: registry.k8s.io/sig-storage/csi-attacher:v4.8.1
+        - name: csi-snapshotter
+          image: registry.k8s.io/sig-storage/csi-snapshotter:v8.2.1
+        - name: csi-rbdplugin
+          image: quay.io/cephcsi/cephcsi:v3.12.2
+        - name: csi-node-driver-registrar
+          image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.13.0
+      
+      csiCephFSProvisionerResource: |
+        - name: csi-provisioner
+          image: registry.k8s.io/sig-storage/csi-provisioner:v5.2.0
+        - name: csi-resizer
+          image: registry.k8s.io/sig-storage/csi-resizer:v1.13.2
+        - name: csi-attacher
+          image: registry.k8s.io/sig-storage/csi-attacher:v4.8.1
+        - name: csi-snapshotter
+          image: registry.k8s.io/sig-storage/csi-snapshotter:v8.2.1
+        - name: csi-cephfsplugin
+          image: quay.io/cephcsi/cephcsi:v3.12.2
+        - name: csi-node-driver-registrar
+          image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.13.0
+    
+    # Resource requests/limits for operator pod.
+    resources:
+      limits:
+        memory: 512Mi
+      requests:
+        cpu: 200m
+        memory: 128Mi
+    
+    # Enable monitoring (Prometheus metrics).
+    monitoring:
+      enabled: false
+    
+    # Node selector to run operator on all nodes.
+    nodeSelector: {}
+    
+    # Tolerations to run on all nodes including control-plane.
+    tolerations: []
+    
+    # Log level for debugging.
+    logLevel: INFO

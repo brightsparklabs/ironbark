@@ -223,73 +223,88 @@ ARG CEPHCSI_VERSION
 # artifacts, causing hard-to-debug runtime failures in deployed clusters.
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 
+# Install Helm for downloading the Rook Helm chart.
+RUN curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash \
+      && helm repo add rook-release https://charts.rook.io/release \
+      && helm repo update
+
+# Download all Rook-Ceph images as separate OCI tarballs.
+# RKE2 expects OCI layout format (manifest.json + blobs/), not docker-archive format.
+# Each image gets its own OCI directory that is then tarred separately.
+
 # Download Rook operator image.
 RUN skopeo copy \
       docker://rook/ceph:${ROOK_VERSION} \
-      docker-archive:/tmp/rook-ceph.tar:rook/ceph:${ROOK_VERSION}
+      oci:/tmp/rook-ceph \
+      && tar -czf rke2-images-rook-ceph.tar.gz -C /tmp/rook-ceph . \
+      && rm -rf /tmp/rook-ceph
 
 # Download Ceph cluster image.
 RUN skopeo copy \
       docker://quay.io/ceph/ceph:${CEPH_VERSION} \
-      docker-archive:/tmp/ceph.tar:quay.io/ceph/ceph:${CEPH_VERSION}
+      oci:/tmp/ceph \
+      && tar -czf rke2-images-ceph.tar.gz -C /tmp/ceph . \
+      && rm -rf /tmp/ceph
 
 # Download Ceph CSI driver image.
 RUN skopeo copy \
       docker://quay.io/cephcsi/cephcsi:${CEPHCSI_VERSION} \
-      docker-archive:/tmp/cephcsi.tar:quay.io/cephcsi/cephcsi:${CEPHCSI_VERSION}
+      oci:/tmp/cephcsi \
+      && tar -czf rke2-images-cephcsi.tar.gz -C /tmp/cephcsi . \
+      && rm -rf /tmp/cephcsi
 
 # Download CSI sidecar images (using latest stable versions).
 # These are required for CSI driver operation.
 RUN skopeo copy \
       docker://registry.k8s.io/sig-storage/csi-provisioner:v5.2.0 \
-      docker-archive:/tmp/csi-provisioner.tar:registry.k8s.io/sig-storage/csi-provisioner:v5.2.0
+      oci:/tmp/csi-provisioner \
+      && tar -czf rke2-images-csi-provisioner.tar.gz -C /tmp/csi-provisioner . \
+      && rm -rf /tmp/csi-provisioner
 
 RUN skopeo copy \
       docker://registry.k8s.io/sig-storage/csi-attacher:v4.8.1 \
-      docker-archive:/tmp/csi-attacher.tar:registry.k8s.io/sig-storage/csi-attacher:v4.8.1
+      oci:/tmp/csi-attacher \
+      && tar -czf rke2-images-csi-attacher.tar.gz -C /tmp/csi-attacher . \
+      && rm -rf /tmp/csi-attacher
 
 RUN skopeo copy \
       docker://registry.k8s.io/sig-storage/csi-resizer:v1.13.2 \
-      docker-archive:/tmp/csi-resizer.tar:registry.k8s.io/sig-storage/csi-resizer:v1.13.2
+      oci:/tmp/csi-resizer \
+      && tar -czf rke2-images-csi-resizer.tar.gz -C /tmp/csi-resizer . \
+      && rm -rf /tmp/csi-resizer
 
 RUN skopeo copy \
       docker://registry.k8s.io/sig-storage/csi-snapshotter:v8.2.1 \
-      docker-archive:/tmp/csi-snapshotter.tar:registry.k8s.io/sig-storage/csi-snapshotter:v8.2.1
+      oci:/tmp/csi-snapshotter \
+      && tar -czf rke2-images-csi-snapshotter.tar.gz -C /tmp/csi-snapshotter . \
+      && rm -rf /tmp/csi-snapshotter
 
 RUN skopeo copy \
       docker://registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.13.0 \
-      docker-archive:/tmp/csi-node-driver-registrar.tar:registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.13.0
+      oci:/tmp/csi-node-driver-registrar \
+      && tar -czf rke2-images-csi-node-driver-registrar.tar.gz -C /tmp/csi-node-driver-registrar . \
+      && rm -rf /tmp/csi-node-driver-registrar
 
-# Combine all Rook-Ceph images into a single tarball and compress.
-# This follows the same pattern as RKE2's image tarballs.
-RUN tar -cf /tmp/rke2-images-rook-ceph.tar \
-      -C /tmp \
-      rook-ceph.tar \
-      ceph.tar \
-      cephcsi.tar \
-      csi-provisioner.tar \
-      csi-attacher.tar \
-      csi-resizer.tar \
-      csi-snapshotter.tar \
-      csi-node-driver-registrar.tar \
-      && zstd -T0 -19 /tmp/rke2-images-rook-ceph.tar \
-      -o "rke2-images-rook-ceph.linux-${ARCH}.tar.zst" \
-      && rm /tmp/rke2-images-rook-ceph.tar \
-      && rm /tmp/*.tar
+# Download Rook Helm chart for air-gapped deployment.
+# We use helm fetch to download the chart as a .tgz file that can be deployed
+# via RKE2's HelmChart CRD pointing to a local chartContent field.
+RUN helm fetch rook-release/rook-ceph \
+      --version ${ROOK_VERSION} \
+      --destination /tmp \
+      && mkdir -p charts \
+      && mv /tmp/rook-ceph-${ROOK_VERSION}.tgz charts/
 
 # Remove the local-path provisioner image tarball as we're using Ceph instead.
 RUN rm -f rke2-images-local-path.linux-*.tar.zst
 
-# Copy all Rook-Ceph CSI manifests in alphabetical order.
-# RKE2 applies manifests alphabetically, so ordering ensures:
-#   1. csi-rook-ceph-common.yaml - RBAC first
-#   2. csi-rook-ceph-crds.yaml - CRDs second
-#   3. csi-rook-ceph-operator.yaml - Operator third
-#   4. csi-rook-ceph.yaml - CephCluster/Pool/StorageClass last
-COPY resources/resources/csi-rook-ceph-common.yaml.tmpl csi-rook-ceph-common.yaml
-COPY resources/resources/csi-rook-ceph-crds.yaml.tmpl csi-rook-ceph-crds.yaml
-COPY resources/resources/csi-rook-ceph-operator.yaml.tmpl csi-rook-ceph-operator.yaml
-COPY resources/resources/csi-rook-ceph.yaml.tmpl csi-rook-ceph.yaml
+# Copy Rook-Ceph HelmChart CRD manifest and CephCluster CR.
+# We use RKE2's HelmChart CRD to deploy the Rook operator from the packaged Helm chart.
+# This avoids issues with the RKE2 Addon controller stripping out Deployment configurations.
+# Order matters (alphabetical):
+#   1. csi-rook-ceph-chart.yaml - HelmChart CRD deploys operator/CRDs/RBAC
+#   2. csi-rook-ceph-cluster.yaml - CephCluster/Pool/StorageClass
+COPY resources/resources/csi-rook-ceph-chart.yaml.tmpl csi-rook-ceph-chart.yaml
+COPY resources/resources/csi-rook-ceph-cluster.yaml.tmpl csi-rook-ceph-cluster.yaml
 
 # Remove the local-path CSI manifest.
 RUN rm -f csi-local-path-provisioner.yaml

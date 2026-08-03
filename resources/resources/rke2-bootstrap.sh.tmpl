@@ -154,17 +154,27 @@ function main() {
     local csi_description
 
     if [[ "${variant}" == "ceph" ]]; then
-        print_info "Installing Rook-Ceph CSI driver manifests..."
-        # Copy all four manifests in alphabetical order:
-        #   1. common (RBAC)
-        #   2. crds (CRDs)
-        #   3. operator (Operator deployment)
-        #   4. csi-rook-ceph (CephCluster/Pool/StorageClass)
+        print_info "Installing Rook-Ceph HelmChart and cluster manifests..."
+        
+        # Copy Rook Helm chart to RKE2 static charts directory.
+        # The HelmChart CRD references this local file for air-gapped deployment.
+        local charts_dir="/var/lib/rancher/rke2/server/static/charts"
+        local chart_source="${IRONBARK_SCRIPT_RKE2_OUTPUT_DIR}/charts/rook-ceph-v1.15.8.tgz"
+        
+        if [[ -f "${chart_source}" ]]; then
+            sudo mkdir -p "${charts_dir}"
+            if sudo cp "${chart_source}" "${charts_dir}/"; then
+                print_info "  - Rook Helm chart copied to ${charts_dir}"
+            fi
+        fi
+        
+        # Copy HelmChart CRD and CephCluster manifests.
+        # Order matters (alphabetical):
+        #   1. csi-rook-ceph-chart.yaml - HelmChart CRD (deploys operator/CRDs/RBAC)
+        #   2. csi-rook-ceph-cluster.yaml - CephCluster/Pool/StorageClass
         local manifests=(
-            "csi-rook-ceph-common.yaml"
-            "csi-rook-ceph-crds.yaml"
-            "csi-rook-ceph-operator.yaml"
-            "csi-rook-ceph.yaml"
+            "csi-rook-ceph-chart.yaml"
+            "csi-rook-ceph-cluster.yaml"
         )
         
         csi_description="Rook-Ceph cluster will be deployed automatically when RKE2 starts (this takes 5-10 minutes)."
@@ -182,8 +192,8 @@ function main() {
         done
         
         # Set the final manifest for the description message below.
-        csi_manifest_source="${IRONBARK_SCRIPT_RKE2_OUTPUT_DIR}/csi-rook-ceph.yaml"
-        csi_manifest_dest="csi-rook-ceph.yaml"
+        csi_manifest_source="${IRONBARK_SCRIPT_RKE2_OUTPUT_DIR}/csi-rook-ceph-cluster.yaml"
+        csi_manifest_dest="csi-rook-ceph-cluster.yaml"
     else
         print_info "Installing local-path-provisioner CSI driver manifest..."
         csi_manifest_source="${IRONBARK_SCRIPT_RKE2_OUTPUT_DIR}/csi-local-path-provisioner.yaml"

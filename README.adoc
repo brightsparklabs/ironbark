@@ -684,17 +684,6 @@ sudo mkdir -p /var/lib/rancher/rke2/server/manifests
 sudo cp rke2-cilium-config.yaml /var/lib/rancher/rke2/server/manifests/
 ----
 
-. Deploy CSI driver manifest for persistent storage:
-+
-The extracted RKE2 artifacts include a CSI driver manifest that will be automatically deployed when RKE2 starts.
-+
-[source,bash]
-----
-# Copy CSI manifest to RKE2 auto-apply directory.
-sudo mkdir -p /var/lib/rancher/rke2/server/manifests
-sudo cp csi-* /var/lib/rancher/rke2/server/manifests/
-----
-
 ==== Configure RKE2
 
 IMPORTANT: Any configuration changes for RKE2 must be done now, *before* starting RKE2.
@@ -704,11 +693,8 @@ Make any desired changes to the configuration files:
 [horizontal]
 RKE2:: `/etc/rancher/rke2/config.yaml`
 CNI:: `/var/lib/rancher/rke2/server/manifests/rke2-cilium-config.yaml`
-CSI (local-path):: `/var/lib/rancher/rke2/server/manifests/csi-local-path-provisioner.yaml`
-CSI (Ceph RBAC):: `/var/lib/rancher/rke2/server/manifests/csi-rook-ceph-common.yaml`
-CSI (Ceph CRDs):: `/var/lib/rancher/rke2/server/manifests/csi-rook-ceph-crds.yaml`
-CSI (Ceph Operator):: `/var/lib/rancher/rke2/server/manifests/csi-rook-ceph-operator.yaml`
-CSI (Ceph Cluster):: `/var/lib/rancher/rke2/server/manifests/csi-rook-ceph.yaml`
+
+NOTE: CSI driver installation is covered in a separate section after the cluster is running.
 
 ==== Install RKE2
 
@@ -741,7 +727,7 @@ export PATH=$PATH:/var/lib/rancher/rke2/bin
 
 . Cluster initialisation takes 5-10 minutes.
 +
-Verify cluster is operational:
+Verify cluster is operational (all system pods Running):
 +
 [source,bash]
 ----
@@ -749,11 +735,36 @@ kubectl get nodes
 kubectl get pods -A
 ----
 
-. If using Ceph:
-+
-Ceph cluster initialisation takes 5-10 minutes after RKE2 starts.
+==== Install CSI Driver (After Cluster is Running)
+
+IMPORTANT: Only install the CSI driver AFTER the RKE2 cluster is fully operational (all system pods Running).
+
+===== Option 1: Use local-path variant
+
+[source,bash]
+----
+sudo cp csi-local-path-provisioner.yaml /var/lib/rancher/rke2/server/manifests/
+----
+
+===== Option 2: Use Rook-Ceph` variant
+
+[source,bash]
+----
+# Copy Helm chart to RKE2 static charts directory.
+sudo mkdir -p /var/lib/rancher/rke2/server/static/charts
+sudo cp charts/rook-ceph-v1.15.8.tgz /var/lib/rancher/rke2/server/static/charts/
+
+# Copy HelmChart CRD and CephCluster manifests.
+sudo cp csi-rook-ceph-chart.yaml /var/lib/rancher/rke2/server/manifests/
+sudo cp csi-rook-ceph-cluster.yaml /var/lib/rancher/rke2/server/manifests/
+
+# Copy Ceph images tarball to RKE2 images directory.
+sudo cp rke2-images-rook-ceph.linux-*.tar.zst /var/lib/rancher/rke2/agent/images/
+----
+
+Ceph cluster initialisation takes 5-10 minutes.
 Verify with:
-+
+
 [source,bash]
 ----
 kubectl -n rook-ceph get cephcluster
@@ -762,8 +773,10 @@ kubectl -n rook-ceph get cephcluster
 kubectl -n rook-ceph exec -it deploy/rook-ceph-tools -- ceph status
 ----
 
-. Verify CSI driver is deployed and working:
-+
+===== Verify CSI driver
+
+Verify CSI driver is deployed and working:
+
 [source,bash]
 ----
 # Verify default StorageClass is created.
@@ -789,7 +802,7 @@ kubectl get pvc test-pvc
 # Clean up test PVC.
 kubectl delete pvc test-pvc
 ----
-+
+
 The CSI driver is working correctly if the `local-path-provisioner` pod is Running and the test PVC shows status `Bound`.
 
 ==== Deploy Ironbark

@@ -1,10 +1,12 @@
 # RKE2 server configuration
 # See: https://docs.rke2.io/install/configuration
 
-# Enable SELinux support.
-# This configures RKE2 to work properly with SELinux enforcing mode.
-# Required for RHEL, Rocky Linux, CentOS, and other SELinux-enabled distributions.
-selinux: true
+# SELinux support:
+# DO NOT enable 'selinux: true' unless the rke2-selinux policy package is installed.
+# Without the policy, RKE2 will fail to start with: "process is not running in context 'container_runtime_t'".
+# For air-gapped deployments, it's simpler to run SELinux in permissive mode (the default).
+# Rook-Ceph will still work correctly via ROOK_HOSTPATH_REQUIRES_PRIVILEGED=true in the operator config.
+# selinux: true
 
 # Use Cilium as the CNI (Container Network Interface).
 # Cilium provides eBPF-based networking, security, and observability.
