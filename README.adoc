@@ -533,50 +533,62 @@ RKE2 is Rancher's security-focused Kubernetes distribution, ideal for air-gapped
 
 Ironbark provides two RKE2 image variants with different CSI storage drivers:
 
-brightsparklabs/ironbark-rke2 (local-path)::
+Variant 1: brightsparklabs/ironbark-rke2 (local-path)::
+Description:::
 Uses Rancher local-path-provisioner for single-node or simple multi-node clusters.
 Storage is node-local (no replication).
 Suitable for development, testing, and small deployments.
-
-brightsparklabs/ironbark-rke2-ceph (Rook-Ceph)::
-Uses Rook-Ceph for production multi-node clusters.
-Provides distributed block storage with 3-replica configuration.
-Requires at least 3 nodes with raw block devices for production use.
-Suitable for production deployments requiring HA storage.
-
-===== When to Use Each Variant
-
-Use local-path variant when::
++
+--
+[horizontal]
+Provisioner:: `rancher.io/local-path`
+StorageClass:: `local-path` (default)
+Reclaim Policy:: `Retain` (volumes persist after PVC deletion)
+Volume Binding Mode:: `Immediate`
+Storage Path:: `/opt/local-path-provisioner` (on each node)
+--
+When to Use:::
 * Running single-node clusters.
 * Storage persistence is needed but replication is not required.
 * Simple development/test environments.
 
-Use Ceph variant when::
+Variant 2: brightsparklabs/ironbark-rke2-ceph (Rook-Ceph)::
+Description:::
+Uses Rook-Ceph for production multi-node clusters.
+Provides distributed block storage with 3-replica configuration.
+Requires at least 3 nodes with raw block devices for production use.
+Suitable for production deployments requiring HA storage.
++
+--
+[horizontal]
+Provisioner:: `rook-ceph.rbd.csi.ceph.com`
+StorageClass:: `rook-ceph-block` (default)
+Reclaim Policy:: `Retain`
+Volume Binding Mode:: `Immediate`
+Replication:: 3 replicas (production-grade HA)
+--
+When to Use:::
 * Running multi-node production clusters (3+ nodes).
 * High-availability storage is required.
 * Raw block devices are available on cluster nodes.
 * Storage replication and fault tolerance are needed.
-
-===== Ceph Variant Requirements
-
-Hardware::
+Requirements:::
+Hardware::::
 * Minimum 3 worker nodes for production 3-replica configuration.
 * Raw block devices (unformatted, no partitions) on each node.
 * Recommended: 10GB+ per OSD device.
-
-Network::
+* 10GB+ free space at `/var/lib/rook` for monitor data (or mount dedicated disk).
+SELinux Compatibility::::
+* The Ceph operator manifest includes `ROOK_HOSTPATH_REQUIRES_PRIVILEGED=true`.
+* The namespace is labeled with `pod-security.kubernetes.io/enforce=privileged`.
+* Ceph daemon pods (mon/osd/mgr) run with privileged security context.
+* This configuration works with SELinux enforcing mode - no SELinux changes needed.
+Network::::
 * Low-latency network between nodes (Ceph is sensitive to latency).
 * Sufficient bandwidth for replication traffic.
-
-Configuration::
+Configuration::::
 The Ceph cluster auto-discovers and uses all available raw devices.
 Customise via CephCluster CR in deployed manifest if needed.
-Monitor Ceph cluster health:
-+
-[source,bash]
-----
-kubectl -n rook-ceph exec -it deploy/rook-ceph-tools -- ceph status
-----
 
 ==== Configure firewall for pod network access
 
@@ -619,19 +631,22 @@ For local-path variant (default):::
 +
 [source,bash]
 ----
-podman run -d --rm \
-  --name ironbark \
-  --network host \
-  docker.io/brightsparklabs/ironbark-rke2:latest
+IMAGE=docker.io/brightsparklabs/ironbark-rke2:latest
 ----
 For Ceph variant:::
++
+[source,bash]
+----
+IMAGE=docker.io/brightsparklabs/ironbark-rke2-ceph:latest
+----
+. Start the Ironbark RKE2 container:
 +
 [source,bash]
 ----
 podman run -d --rm \
   --name ironbark \
   --network host \
-  docker.io/brightsparklabs/ironbark-rke2-ceph:latest
+  ${IMAGE}
 ----
 
 . Download and extract RKE2 artifacts:
@@ -672,50 +687,12 @@ sudo cp rke2-cilium-config.yaml /var/lib/rancher/rke2/server/manifests/
 . Deploy CSI driver manifest for persistent storage:
 +
 The extracted RKE2 artifacts include a CSI driver manifest that will be automatically deployed when RKE2 starts.
-The specific CSI driver depends on the Ironbark image variant you are using:
-
-For local-path variant:::
 +
 [source,bash]
 ----
-# Copy local-path-provisioner manifest to RKE2 auto-apply directory.
+# Copy CSI manifest to RKE2 auto-apply directory.
 sudo mkdir -p /var/lib/rancher/rke2/server/manifests
-sudo cp csi-local-path-provisioner.yaml /var/lib/rancher/rke2/server/manifests/
-----
-+
---
-[horizontal]
-Provisioner:: `rancher.io/local-path`
-StorageClass:: `local-path` (default)
-Reclaim Policy:: `Retain` (volumes persist after PVC deletion)
-Volume Binding Mode:: `Immediate`
-Storage Path:: `/opt/local-path-provisioner` (on each node)
---
-For Ceph variant:
-+
-[source,bash]
-----
-# Copy Rook-Ceph manifests to RKE2 auto-apply directory.
-sudo mkdir -p /var/lib/rancher/rke2/server/manifests
-sudo cp csi-rook-ceph-crds.yaml /var/lib/rancher/rke2/server/manifests/
-sudo cp csi-rook-ceph.yaml /var/lib/rancher/rke2/server/manifests/
-----
-+
---
-[horizontal]
-Provisioner:: `rook-ceph.rbd.csi.ceph.com`
-StorageClass:: `rook-ceph-block` (default)
-Reclaim Policy:: `Retain`
-Volume Binding Mode:: `Immediate`
-Replication:: 3 replicas (production-grade HA)
---
-+
-Ceph cluster initialisation takes 5-10 minutes after RKE2 starts.
-Verify with:
-+
-[source,bash]
-----
-kubectl -n rook-ceph get cephcluster
+sudo cp csi-* /var/lib/rancher/rke2/server/manifests/
 ----
 
 ==== Configure RKE2
@@ -728,7 +705,9 @@ Make any desired changes to the configuration files:
 RKE2:: `/etc/rancher/rke2/config.yaml`
 CNI:: `/var/lib/rancher/rke2/server/manifests/rke2-cilium-config.yaml`
 CSI (local-path):: `/var/lib/rancher/rke2/server/manifests/csi-local-path-provisioner.yaml`
+CSI (Ceph RBAC):: `/var/lib/rancher/rke2/server/manifests/csi-rook-ceph-common.yaml`
 CSI (Ceph CRDs):: `/var/lib/rancher/rke2/server/manifests/csi-rook-ceph-crds.yaml`
+CSI (Ceph Operator):: `/var/lib/rancher/rke2/server/manifests/csi-rook-ceph-operator.yaml`
 CSI (Ceph Cluster):: `/var/lib/rancher/rke2/server/manifests/csi-rook-ceph.yaml`
 
 ==== Install RKE2
@@ -760,7 +739,9 @@ sudo chown $(id -u):$(id -g) ~/.kube/config
 export PATH=$PATH:/var/lib/rancher/rke2/bin
 ----
 
-. Verify cluster is operational:
+. Cluster initialisation takes 5-10 minutes.
++
+Verify cluster is operational:
 +
 [source,bash]
 ----
@@ -768,15 +749,25 @@ kubectl get nodes
 kubectl get pods -A
 ----
 
+. If using Ceph:
++
+Ceph cluster initialisation takes 5-10 minutes after RKE2 starts.
+Verify with:
++
+[source,bash]
+----
+kubectl -n rook-ceph get cephcluster
+
+# If ceph-tools has been deployed.
+kubectl -n rook-ceph exec -it deploy/rook-ceph-tools -- ceph status
+----
+
 . Verify CSI driver is deployed and working:
 +
 [source,bash]
 ----
-# Check local-path-provisioner pod is running.
-kubectl get pods -n local-path-storage
-
 # Verify default StorageClass is created.
-kubectl get storageclass local-path
+kubectl get storageclass
 
 # Optional: Test PVC creation.
 cat <<EOF | kubectl apply -f -

@@ -155,20 +155,35 @@ function main() {
 
     if [[ "${variant}" == "ceph" ]]; then
         print_info "Installing Rook-Ceph CSI driver manifests..."
-        # Copy CRDs first (alphabetically before main manifest).
-        local csi_crds_source="${IRONBARK_SCRIPT_RKE2_OUTPUT_DIR}/csi-rook-ceph-crds.yaml"
-        local csi_crds_dest="csi-rook-ceph-crds.yaml"
-        # Then the cluster manifest.
+        # Copy all four manifests in alphabetical order:
+        #   1. common (RBAC)
+        #   2. crds (CRDs)
+        #   3. operator (Operator deployment)
+        #   4. csi-rook-ceph (CephCluster/Pool/StorageClass)
+        local manifests=(
+            "csi-rook-ceph-common.yaml"
+            "csi-rook-ceph-crds.yaml"
+            "csi-rook-ceph-operator.yaml"
+            "csi-rook-ceph.yaml"
+        )
+        
+        csi_description="Rook-Ceph cluster will be deployed automatically when RKE2 starts (this takes 5-10 minutes)."
+        
+        # Copy all Rook-Ceph manifests.
+        for manifest in "${manifests[@]}"; do
+            local source="${IRONBARK_SCRIPT_RKE2_OUTPUT_DIR}/${manifest}"
+            local dest="${manifest}"
+            
+            if [[ -f "${source}" ]] && [[ -d "${rke2_manifests_dir}" ]]; then
+                if sudo cp "${source}" "${rke2_manifests_dir}/${dest}"; then
+                    print_info "  - ${dest} installed"
+                fi
+            fi
+        done
+        
+        # Set the final manifest for the description message below.
         csi_manifest_source="${IRONBARK_SCRIPT_RKE2_OUTPUT_DIR}/csi-rook-ceph.yaml"
         csi_manifest_dest="csi-rook-ceph.yaml"
-        csi_description="Rook-Ceph cluster will be deployed automatically when RKE2 starts."
-        
-        # Copy CRDs manifest first.
-        if [[ -f "${csi_crds_source}" ]] && [[ -d "${rke2_manifests_dir}" ]]; then
-            if sudo cp "${csi_crds_source}" "${rke2_manifests_dir}/${csi_crds_dest}"; then
-                print_info "Rook CRDs manifest installed to ${rke2_manifests_dir}/${csi_crds_dest}"
-            fi
-        fi
     else
         print_info "Installing local-path-provisioner CSI driver manifest..."
         csi_manifest_source="${IRONBARK_SCRIPT_RKE2_OUTPUT_DIR}/csi-local-path-provisioner.yaml"

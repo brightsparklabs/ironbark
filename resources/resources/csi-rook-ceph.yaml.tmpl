@@ -52,11 +52,19 @@ rules:
     resources: ["*"]
     verbs: ["*"]
   - apiGroups: ["storage.k8s.io"]
-    resources: ["storageclasses"]
-    verbs: ["get", "list", "watch"]
+    resources: ["storageclasses", "csidrivers"]
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
   - apiGroups: ["objectbucket.io"]
     resources: ["*"]
     verbs: ["*"]
+  # Required for Rook operator to access CRDs and manage PodDisruptionBudgets.
+  # Without these permissions, the operator cannot reconcile the CephCluster.
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -127,7 +135,9 @@ spec:
   dataDirHostPath: /var/lib/rook
   mon:
     count: 3
-    allowMultiplePerNode: false
+    # Allow multiple monitors per node for single-node or small dev/test clusters.
+    # In production with 3+ nodes, this should be false for proper HA.
+    allowMultiplePerNode: true
   mgr:
     count: 2
     allowMultiplePerNode: false

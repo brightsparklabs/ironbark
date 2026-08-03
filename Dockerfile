@@ -280,9 +280,15 @@ RUN tar -cf /tmp/rke2-images-rook-ceph.tar \
 # Remove the local-path provisioner image tarball as we're using Ceph instead.
 RUN rm -f rke2-images-local-path.linux-*.tar.zst
 
-# Copy the Rook-Ceph CSI manifests (CRDs and cluster resources).
-# CRDs are in a separate file to be applied first (alphabetically before cluster manifest).
+# Copy all Rook-Ceph CSI manifests in alphabetical order.
+# RKE2 applies manifests alphabetically, so ordering ensures:
+#   1. csi-rook-ceph-common.yaml - RBAC first
+#   2. csi-rook-ceph-crds.yaml - CRDs second
+#   3. csi-rook-ceph-operator.yaml - Operator third
+#   4. csi-rook-ceph.yaml - CephCluster/Pool/StorageClass last
+COPY resources/resources/csi-rook-ceph-common.yaml.tmpl csi-rook-ceph-common.yaml
 COPY resources/resources/csi-rook-ceph-crds.yaml.tmpl csi-rook-ceph-crds.yaml
+COPY resources/resources/csi-rook-ceph-operator.yaml.tmpl csi-rook-ceph-operator.yaml
 COPY resources/resources/csi-rook-ceph.yaml.tmpl csi-rook-ceph.yaml
 
 # Remove the local-path CSI manifest.
