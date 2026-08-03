@@ -236,21 +236,21 @@ RUN curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | b
 RUN skopeo copy \
       docker://rook/ceph:${ROOK_VERSION} \
       oci:/tmp/rook-ceph \
-      && tar -czf rke2-images-rook-ceph.tar.gz -C /tmp/rook-ceph . \
+      && tar -I 'zstd -19 -T0' -cf rke2-images-rook-ceph.linux-amd64.tar.zst -C /tmp/rook-ceph . \
       && rm -rf /tmp/rook-ceph
 
 # Download Ceph cluster image.
 RUN skopeo copy \
       docker://quay.io/ceph/ceph:${CEPH_VERSION} \
       oci:/tmp/ceph \
-      && tar -czf rke2-images-ceph.tar.gz -C /tmp/ceph . \
+      && tar -I 'zstd -19 -T0' -cf rke2-images-ceph.linux-amd64.tar.zst -C /tmp/ceph . \
       && rm -rf /tmp/ceph
 
 # Download Ceph CSI driver image.
 RUN skopeo copy \
       docker://quay.io/cephcsi/cephcsi:${CEPHCSI_VERSION} \
       oci:/tmp/cephcsi \
-      && tar -czf rke2-images-cephcsi.tar.gz -C /tmp/cephcsi . \
+      && tar -I 'zstd -19 -T0' -cf rke2-images-cephcsi.linux-amd64.tar.zst -C /tmp/cephcsi . \
       && rm -rf /tmp/cephcsi
 
 # Download CSI sidecar images (using latest stable versions).
@@ -258,52 +258,55 @@ RUN skopeo copy \
 RUN skopeo copy \
       docker://registry.k8s.io/sig-storage/csi-provisioner:v5.2.0 \
       oci:/tmp/csi-provisioner \
-      && tar -czf rke2-images-csi-provisioner.tar.gz -C /tmp/csi-provisioner . \
+      && tar -I 'zstd -19 -T0' -cf rke2-images-csi-provisioner.linux-amd64.tar.zst -C /tmp/csi-provisioner . \
       && rm -rf /tmp/csi-provisioner
 
 RUN skopeo copy \
       docker://registry.k8s.io/sig-storage/csi-attacher:v4.8.1 \
       oci:/tmp/csi-attacher \
-      && tar -czf rke2-images-csi-attacher.tar.gz -C /tmp/csi-attacher . \
+      && tar -I 'zstd -19 -T0' -cf rke2-images-csi-attacher.linux-amd64.tar.zst -C /tmp/csi-attacher . \
       && rm -rf /tmp/csi-attacher
 
 RUN skopeo copy \
       docker://registry.k8s.io/sig-storage/csi-resizer:v1.13.2 \
       oci:/tmp/csi-resizer \
-      && tar -czf rke2-images-csi-resizer.tar.gz -C /tmp/csi-resizer . \
+      && tar -I 'zstd -19 -T0' -cf rke2-images-csi-resizer.linux-amd64.tar.zst -C /tmp/csi-resizer . \
       && rm -rf /tmp/csi-resizer
 
 RUN skopeo copy \
       docker://registry.k8s.io/sig-storage/csi-snapshotter:v8.2.1 \
       oci:/tmp/csi-snapshotter \
-      && tar -czf rke2-images-csi-snapshotter.tar.gz -C /tmp/csi-snapshotter . \
+      && tar -I 'zstd -19 -T0' -cf rke2-images-csi-snapshotter.linux-amd64.tar.zst -C /tmp/csi-snapshotter . \
       && rm -rf /tmp/csi-snapshotter
 
 RUN skopeo copy \
       docker://registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.13.0 \
       oci:/tmp/csi-node-driver-registrar \
-      && tar -czf rke2-images-csi-node-driver-registrar.tar.gz -C /tmp/csi-node-driver-registrar . \
+      && tar -I 'zstd -19 -T0' -cf rke2-images-csi-node-driver-registrar.linux-amd64.tar.zst -C /tmp/csi-node-driver-registrar . \
       && rm -rf /tmp/csi-node-driver-registrar
 
 # Download Rook Helm chart for air-gapped deployment.
-# We use helm fetch to download the chart as a .tgz file that can be deployed
-# via RKE2's HelmChart CRD pointing to a local chartContent field.
+# Base64-encode it and inject into the HelmChart manifest as chartContent.
+# This is required because RKE2's helm-install pod cannot access host filesystem paths.
 RUN helm fetch rook-release/rook-ceph \
       --version ${ROOK_VERSION} \
-      --destination /tmp \
-      && mkdir -p charts \
-      && mv /tmp/rook-ceph-${ROOK_VERSION}.tgz charts/
+      --destination /tmp
+
+# Copy the HelmChart manifest template and inject the base64-encoded chart.
+# The __CHART_CONTENT_BASE64__ placeholder will be replaced with the actual chart content.
+COPY resources/resources/csi-rook-ceph-chart.yaml.tmpl /tmp/csi-rook-ceph-chart.yaml.tmpl
+RUN CHART_CONTENT=$(base64 -w 0 /tmp/rook-ceph-${ROOK_VERSION}.tgz) \
+      && sed "s|__CHART_CONTENT_BASE64__|${CHART_CONTENT}|" \
+            /tmp/csi-rook-ceph-chart.yaml.tmpl > csi-rook-ceph-chart.yaml \
+      && rm /tmp/csi-rook-ceph-chart.yaml.tmpl /tmp/rook-ceph-${ROOK_VERSION}.tgz
 
 # Remove the local-path provisioner image tarball as we're using Ceph instead.
 RUN rm -f rke2-images-local-path.linux-*.tar.zst
 
-# Copy Rook-Ceph HelmChart CRD manifest and CephCluster CR.
-# We use RKE2's HelmChart CRD to deploy the Rook operator from the packaged Helm chart.
-# This avoids issues with the RKE2 Addon controller stripping out Deployment configurations.
+# Copy CephCluster CR (this is applied after the operator is deployed).
 # Order matters (alphabetical):
-#   1. csi-rook-ceph-chart.yaml - HelmChart CRD deploys operator/CRDs/RBAC
+#   1. csi-rook-ceph-chart.yaml - HelmChart CRD deploys operator/CRDs/RBAC (with embedded chart)
 #   2. csi-rook-ceph-cluster.yaml - CephCluster/Pool/StorageClass
-COPY resources/resources/csi-rook-ceph-chart.yaml.tmpl csi-rook-ceph-chart.yaml
 COPY resources/resources/csi-rook-ceph-cluster.yaml.tmpl csi-rook-ceph-cluster.yaml
 
 # Remove the local-path CSI manifest.

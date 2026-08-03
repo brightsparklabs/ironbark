@@ -17,43 +17,44 @@ metadata:
   name: rook-ceph
   namespace: kube-system
 spec:
-  # Use the local chart file packaged in the image.
-  # RKE2 expects charts to be in /var/lib/rancher/rke2/server/static/charts/
-  chart: /var/lib/rancher/rke2/server/static/charts/rook-ceph-v1.15.8.tgz
-  
+  # Use chartContent to embed the chart directly (base64-encoded by Dockerfile).
+  # The chart file will be base64-encoded and embedded during deployment.
+  # This is required for air-gapped deployments as they cannot pull charts.
+  chartContent: __CHART_CONTENT_BASE64__
+
   # Deploy to rook-ceph namespace (will be created automatically).
   targetNamespace: rook-ceph
   createNamespace: true
-  
+
   # Helm release name.
   releaseName: rook-ceph
-  
+
   # Set bootstrap to true to ensure this deploys during initial cluster setup.
   bootstrap: true
-  
+
   # Helm values to configure the Rook operator for production air-gapped deployment.
   valuesContent: |-
     # Enable SELinux relabeling to work with enforcing mode.
     # This allows Ceph daemons to access hostPath volumes on SELinux-enabled systems.
     enableSelinuxRelabeling: true
-    
+
     # Set hostpathRequiresPrivileged to allow Ceph daemons to create directories
     # on hostPath volumes. Required for /var/lib/rook directory creation.
     hostpathRequiresPrivileged: true
-    
+
     # Use the Ceph images from our pre-loaded tarball.
     # RKE2 will have already loaded these from rke2-images-rook-ceph.linux-*.tar.zst
     image:
       repository: rook/ceph
       tag: v1.15.8
       pullPolicy: IfNotPresent
-    
+
     # Configure CSI driver images (also pre-loaded from tarball).
     csi:
       enableRbdDriver: true
       enableCephfsDriver: true
       enableGrpcMetrics: false
-      
+
       # Use pre-loaded images from tarball.
       csiRBDProvisionerResource: |
         - name: csi-provisioner
@@ -68,7 +69,7 @@ spec:
           image: quay.io/cephcsi/cephcsi:v3.12.2
         - name: csi-node-driver-registrar
           image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.13.0
-      
+
       csiCephFSProvisionerResource: |
         - name: csi-provisioner
           image: registry.k8s.io/sig-storage/csi-provisioner:v5.2.0
@@ -82,7 +83,7 @@ spec:
           image: quay.io/cephcsi/cephcsi:v3.12.2
         - name: csi-node-driver-registrar
           image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.13.0
-    
+
     # Resource requests/limits for operator pod.
     resources:
       limits:
@@ -90,16 +91,16 @@ spec:
       requests:
         cpu: 200m
         memory: 128Mi
-    
+
     # Enable monitoring (Prometheus metrics).
     monitoring:
       enabled: false
-    
+
     # Node selector to run operator on all nodes.
     nodeSelector: {}
-    
+
     # Tolerations to run on all nodes including control-plane.
     tolerations: []
-    
+
     # Log level for debugging.
     logLevel: INFO

@@ -1,6 +1,7 @@
 = Ironbark
 :toc: left
 :sectnums:
+:sectnumlevels: 4
 
 Ironbark is a Kubernetes deployment tool designed for air-gapped environments.
 It simplifies the deployment and management of applications through a self-hosted ArgoCD App of Apps repository pattern.
@@ -552,7 +553,7 @@ When to Use:::
 * Storage persistence is needed but replication is not required.
 * Simple development/test environments.
 
-Variant 2: brightsparklabs/ironbark-rke2-ceph (Rook-Ceph)::
+Variant 2: brightsparklabs/ironbark-rke2-ceph (Ceph)::
 Description:::
 Uses Rook-Ceph for production multi-node clusters.
 Provides distributed block storage with 3-replica configuration.
@@ -626,7 +627,7 @@ If you intend to customise the CIDRs in your RKE2 configuration, use those value
 
 ==== Extract RKE2 artifacts
 
-. Start the Ironbark RKE2 container:
+. Select the appropriate Ironbark RKE2 image:
 For local-path variant (default):::
 +
 [source,bash]
@@ -666,6 +667,9 @@ cd rke2/
 ----
 sudo mkdir -p /var/lib/rancher/rke2/agent/images
 sudo cp rke2-images-*.tar.zst /var/lib/rancher/rke2/agent/images/
+
+# Improve startup time by only importing tarballs that have changes since they were last imported.
+sudo touch /var/lib/rancher/rke2/agent/images/.cache.json
 ----
 +
 IMPORTANT: Both `rke2-images-cilium` and `rke2-images-core` tarballs are required for air-gapped deployment.
@@ -735,6 +739,150 @@ kubectl get nodes
 kubectl get pods -A
 ----
 
+==== Adding Additional Nodes (For Multi-Node Clusters)
+
+IMPORTANT: For Rook-Ceph CSI, you MUST add additional nodes BEFORE deploying the CSI driver.
+The default CephBlockPool requires 3 replicas across 3 different hosts.
+
+===== Get Cluster Join Token
+
+On the first server node, retrieve the token that additional nodes will use to join:
+
+[source,bash]
+----
+# Get the join token.
+sudo cat /var/lib/rancher/rke2/server/node-token
+----
+
+Save this token - you'll need it on each additional node.
+
+===== Add Additional Server Nodes (High Availability)
+
+To add more control-plane nodes for HA (highly available cluster), repeat these steps on each additional server node.
+
+. On the first server, copy artifacts to the new server node:
++
+[source,bash]
+----
+# Copy RKE2 installation artifacts.
+scp install.sh rke2-images-*.tar.zst rke2.linux-amd64.tar.gz sha256sum-amd64.txt \
+  <NEW_SERVER_USER>@<NEW_SERVER_IP>:/tmp/
+
+# Copy Cilium configuration.
+scp rke2-cilium-config.yaml <NEW_SERVER_USER>@<NEW_SERVER_IP>:/tmp/
+----
+
+. On the new server node, extract and copy artifacts:
++
+[source,bash]
+----
+cd /tmp
+
+# Copy container image tarballs.
+sudo mkdir -p /var/lib/rancher/rke2/agent/images
+sudo cp rke2-images-*.tar.zst /var/lib/rancher/rke2/agent/images/
+sudo touch /var/lib/rancher/rke2/agent/images/.cache.json
+----
+
+. Configure RKE2 to join the existing cluster:
++
+[source,bash]
+----
+# Create RKE2 config to join as a server.
+# Replace <FIRST_SERVER_IP>, <TOKEN>, and <THIS_SERVER_IP> with actual values.
+sudo mkdir -p /etc/rancher/rke2
+sudo bash -c 'cat > /etc/rancher/rke2/config.yaml <<EOF
+server: https://<FIRST_SERVER_IP>:9345
+token: <TOKEN_FROM_FIRST_SERVER>
+tls-san:
+  - <THIS_SERVER_IP>
+cni: cilium
+EOF'
+
+# Copy Cilium config.
+sudo mkdir -p /var/lib/rancher/rke2/server/manifests
+sudo cp /tmp/rke2-cilium-config.yaml /var/lib/rancher/rke2/server/manifests/
+----
+
+. Install and start RKE2 server:
++
+[source,bash]
+----
+sudo INSTALL_RKE2_TYPE=server \
+  INSTALL_RKE2_ARTIFACT_PATH=/tmp \
+  sh /tmp/install.sh
+
+sudo systemctl enable rke2-server.service
+sudo systemctl start rke2-server.service
+----
+
+. Verify the new server joined (run on first server):
++
+[source,bash]
+----
+kubectl get nodes
+----
+
+===== Add Worker Nodes (Agent-Only)
+
+To add worker-only nodes (agents that run workloads but not control-plane components), repeat these steps on each worker node.
+
+. On the first server, copy artifacts to the worker node:
++
+[source,bash]
+----
+# Copy RKE2 installation artifacts.
+scp install.sh rke2-images-*.tar.zst rke2.linux-amd64.tar.gz sha256sum-amd64.txt \
+  <WORKER_USER>@<WORKER_IP>:/tmp/
+----
+
+. On the worker node, extract and copy artifacts:
++
+[source,bash]
+----
+cd /tmp
+
+# Copy container image tarballs.
+sudo mkdir -p /var/lib/rancher/rke2/agent/images
+sudo cp rke2-images-*.tar.zst /var/lib/rancher/rke2/agent/images/
+sudo touch /var/lib/rancher/rke2/agent/images/.cache.json
+----
+
+. Configure RKE2 to join as an agent:
++
+[source,bash]
+----
+# Create RKE2 config to join as an agent.
+# Replace <FIRST_SERVER_IP> and <TOKEN> with actual values.
+sudo mkdir -p /etc/rancher/rke2
+sudo bash -c 'cat > /etc/rancher/rke2/config.yaml <<EOF
+server: https://<FIRST_SERVER_IP>:9345
+token: <TOKEN_FROM_FIRST_SERVER>
+EOF'
+----
++
+NOTE: Agent nodes do NOT need `cni: cilium` in their config (CNI is configured by server nodes).
+Agent nodes also do NOT need the `rke2-cilium-config.yaml` manifest.
+
+. Install and start RKE2 agent:
++
+[source,bash]
+----
+sudo INSTALL_RKE2_TYPE=agent \
+  INSTALL_RKE2_ARTIFACT_PATH=/tmp \
+  sh /tmp/install.sh
+
+sudo systemctl enable rke2-agent.service
+sudo systemctl start rke2-agent.service
+----
+
+. Verify the new agent joined (run on first server):
++
+[source,bash]
+----
+kubectl get nodes
+----
+
 ==== Install CSI Driver (After Cluster is Running)
 
 IMPORTANT: Only install the CSI driver AFTER the RKE2 cluster is fully operational (all system pods Running).
@@ -744,22 +892,54 @@ IMPORTANT: Only install the CSI driver AFTER the RKE2 cluster is fully operation
 [source,bash]
 ----
 sudo cp csi-local-path-provisioner.yaml /var/lib/rancher/rke2/server/manifests/
+sudo systemctl restart rke2-server
 ----
 
-===== Option 2: Use Rook-Ceph` variant
+===== Option 2: Use Ceph variant
+
+[IMPORTANT]
+--
+*Rook-Ceph Requirements*
+
+For Rook-Ceph to work properly:
+
+* **Minimum 3 nodes** (can be server or agent nodes).
+* Each node needs a **raw block device** (unformatted, no partitions) for Ceph OSDs.
+
+*Single-Node Testing Workaround*
+
+If you only have 1 node for testing, you can modify the CephBlockPool AFTER deployment:
 
 [source,bash]
 ----
-# Copy Helm chart to RKE2 static charts directory.
-sudo mkdir -p /var/lib/rancher/rke2/server/static/charts
-sudo cp charts/rook-ceph-v1.15.8.tgz /var/lib/rancher/rke2/server/static/charts/
+# After CephCluster is deployed, patch the pool to use 1 replica.
+kubectl patch cephblockpool -n rook-ceph replicapool --type merge \
+  -p '{"spec":{"replicated":{"size":1,"requireSafeReplicaSize":false}}}'
 
-# Copy HelmChart CRD and CephCluster manifests.
+# Verify pool is now Ready.
+kubectl get cephblockpool -n rook-ceph
+----
+
+WARNING: Single-replica configuration provides NO data redundancy.
+A single OSD or node failure will result in data loss.
+Only use for testing/development.
+--
+
+[source,bash]
+----
+# Copy HelmChart CRD manifest (contains base64-encoded chart).
 sudo cp csi-rook-ceph-chart.yaml /var/lib/rancher/rke2/server/manifests/
-sudo cp csi-rook-ceph-cluster.yaml /var/lib/rancher/rke2/server/manifests/
+sudo systemctl restart rke2-server
 
-# Copy Ceph images tarball to RKE2 images directory.
-sudo cp rke2-images-rook-ceph.linux-*.tar.zst /var/lib/rancher/rke2/agent/images/
+# Wait for Rook operator to deploy and CRDs to be installed (takes ~2 minutes).
+kubectl wait --for=condition=ready pod -l app=rook-ceph-operator -n rook-ceph --timeout=300s
+
+# Verify CRDs are installed.
+kubectl get crd cephclusters.ceph.rook.io
+
+# Now copy CephCluster manifest.
+sudo cp csi-rook-ceph-cluster.yaml /var/lib/rancher/rke2/server/manifests/
+sudo systemctl restart rke2-server
 ----
 
 Ceph cluster initialisation takes 5-10 minutes.
@@ -802,8 +982,6 @@ kubectl get pvc test-pvc
 # Clean up test PVC.
 kubectl delete pvc test-pvc
 ----
-
-The CSI driver is working correctly if the `local-path-provisioner` pod is Running and the test PVC shows status `Bound`.
 
 ==== Deploy Ironbark
 
