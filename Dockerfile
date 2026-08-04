@@ -25,6 +25,9 @@ ARG KUBECTL_VERSION=v1.36.1
 ARG ZARF_VERSION=v0.76.0
 ARG RKE2_VERSION=v1.33.5+rke2r1
 ARG LOCAL_PATH_PROVISIONER_VERSION=v0.0.30
+ARG ROOK_VERSION=v1.15.8
+ARG CEPH_VERSION=v18.2.4
+ARG CEPHCSI_VERSION=v3.12.2
 
 # ------------------------------------------------------------------------------
 # BUILDER STAGE - TOOLING
@@ -203,6 +206,126 @@ COPY resources/resources/rke2-cilium-config.yaml.tmpl rke2-cilium-config.yaml
 COPY resources/resources/csi-local-path-provisioner.yaml.tmpl csi-local-path-provisioner.yaml
 
 # ------------------------------------------------------------------------------
+# BUILDER STAGE - RKE2 CEPH ARTIFACTS
+# ------------------------------------------------------------------------------
+
+# Build RKE2 Ceph variant artifacts by inheriting from the standard RKE2 stage
+# and adding Rook-Ceph container images.
+FROM builder-rke2-artifacts AS builder-rke2-ceph-artifacts
+
+ARG ARCH
+ARG ROOK_VERSION
+ARG CEPH_VERSION
+ARG CEPHCSI_VERSION
+
+# Enable strict error handling to catch failures immediately during image downloads.
+# Without this, failed downloads or pipeline errors could silently produce incomplete
+# artifacts, causing hard-to-debug runtime failures in deployed clusters.
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
+
+# Install Helm for downloading the Rook Helm chart.
+RUN curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash \
+      && helm repo add rook-release https://charts.rook.io/release \
+      && helm repo update
+
+# Download all Rook-Ceph images as separate OCI tarballs.
+# RKE2 expects OCI layout format (manifest.json + blobs/), not docker-archive format.
+# Each image gets its own OCI directory that is then tarred separately.
+
+# Download Rook operator image.
+RUN skopeo copy \
+      docker://rook/ceph:${ROOK_VERSION} \
+      oci:/tmp/rook-ceph \
+      && tar -I 'zstd -19 -T0' -cf rke2-images-rook-ceph.linux-amd64.tar.zst -C /tmp/rook-ceph . \
+      && rm -rf /tmp/rook-ceph
+
+# Download Ceph cluster image.
+RUN skopeo copy \
+      docker://quay.io/ceph/ceph:${CEPH_VERSION} \
+      oci:/tmp/ceph \
+      && tar -I 'zstd -19 -T0' -cf rke2-images-ceph.linux-amd64.tar.zst -C /tmp/ceph . \
+      && rm -rf /tmp/ceph
+
+# Download Ceph CSI driver image.
+RUN skopeo copy \
+      docker://quay.io/cephcsi/cephcsi:${CEPHCSI_VERSION} \
+      oci:/tmp/cephcsi \
+      && tar -I 'zstd -19 -T0' -cf rke2-images-cephcsi.linux-amd64.tar.zst -C /tmp/cephcsi . \
+      && rm -rf /tmp/cephcsi
+
+# Download CSI sidecar images (using latest stable versions).
+# These are required for CSI driver operation.
+RUN skopeo copy \
+      docker://registry.k8s.io/sig-storage/csi-provisioner:v5.2.0 \
+      oci:/tmp/csi-provisioner \
+      && tar -I 'zstd -19 -T0' -cf rke2-images-csi-provisioner.linux-amd64.tar.zst -C /tmp/csi-provisioner . \
+      && rm -rf /tmp/csi-provisioner
+
+RUN skopeo copy \
+      docker://registry.k8s.io/sig-storage/csi-attacher:v4.8.1 \
+      oci:/tmp/csi-attacher \
+      && tar -I 'zstd -19 -T0' -cf rke2-images-csi-attacher.linux-amd64.tar.zst -C /tmp/csi-attacher . \
+      && rm -rf /tmp/csi-attacher
+
+RUN skopeo copy \
+      docker://registry.k8s.io/sig-storage/csi-resizer:v1.13.2 \
+      oci:/tmp/csi-resizer \
+      && tar -I 'zstd -19 -T0' -cf rke2-images-csi-resizer.linux-amd64.tar.zst -C /tmp/csi-resizer . \
+      && rm -rf /tmp/csi-resizer
+
+RUN skopeo copy \
+      docker://registry.k8s.io/sig-storage/csi-snapshotter:v8.2.1 \
+      oci:/tmp/csi-snapshotter \
+      && tar -I 'zstd -19 -T0' -cf rke2-images-csi-snapshotter.linux-amd64.tar.zst -C /tmp/csi-snapshotter . \
+      && rm -rf /tmp/csi-snapshotter
+
+RUN skopeo copy \
+      docker://registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.13.0 \
+      oci:/tmp/csi-node-driver-registrar \
+      && tar -I 'zstd -19 -T0' -cf rke2-images-csi-node-driver-registrar.linux-amd64.tar.zst -C /tmp/csi-node-driver-registrar . \
+      && rm -rf /tmp/csi-node-driver-registrar
+
+# Download Rook Helm chart for air-gapped deployment.
+# Base64-encode it and inject into the HelmChart manifest as chartContent.
+# This is required because RKE2's helm-install pod cannot access host filesystem paths.
+RUN helm fetch rook-release/rook-ceph \
+      --version ${ROOK_VERSION} \
+      --destination /tmp
+
+# Copy the HelmChart manifest template and inject the base64-encoded chart.
+# The __CHART_CONTENT_BASE64__ placeholder will be replaced with the actual chart content.
+COPY resources/resources/csi-rook-ceph-chart.yaml.tmpl /tmp/csi-rook-ceph-chart.yaml.tmpl
+RUN CHART_CONTENT=$(base64 -w 0 /tmp/rook-ceph-${ROOK_VERSION}.tgz) \
+      && sed "s|__CHART_CONTENT_BASE64__|${CHART_CONTENT}|" \
+            /tmp/csi-rook-ceph-chart.yaml.tmpl > csi-rook-ceph-chart.yaml \
+      && rm /tmp/csi-rook-ceph-chart.yaml.tmpl /tmp/rook-ceph-${ROOK_VERSION}.tgz
+
+# Remove the local-path provisioner image tarball as we're using Ceph instead.
+RUN rm -f rke2-images-local-path.linux-*.tar.zst
+
+# Copy CephCluster CR (this is applied after the operator is deployed).
+# Order matters (alphabetical):
+#   1. csi-rook-ceph-chart.yaml - HelmChart CRD deploys operator/CRDs/RBAC (with embedded chart)
+#   2. csi-rook-ceph-cluster.yaml - CephCluster/Pool/StorageClass
+COPY resources/resources/csi-rook-ceph-cluster.yaml.tmpl csi-rook-ceph-cluster.yaml
+
+# Remove the local-path CSI manifest.
+RUN rm -f csi-local-path-provisioner.yaml
+
+# Update VERSION.json to reflect Ceph variant.
+RUN cat > VERSION.json <<EOF
+{
+  "ironbark": "rke2-ceph-variant",
+  "tools": {
+    "rke2": "${RKE2_VERSION}",
+    "rook": "${ROOK_VERSION}",
+    "ceph": "${CEPH_VERSION}",
+    "cephcsi": "${CEPHCSI_VERSION}"
+  }
+}
+EOF
+
+# ------------------------------------------------------------------------------
 # BUILDER STAGE - GOLANG
 # ------------------------------------------------------------------------------
 
@@ -367,6 +490,31 @@ COPY --from=builder-rke2-artifacts /build/resources/rke2/ resources/rke2/
 
 LABEL org.label-schema.name="ironbark-rke2" \
       org.label-schema.description="Kubernetes management using the brightSPARK Labs opinionated deployment pattern (RKE2)" \
+      org.opencontainers.image.authors="brightSPARK Labs <enquire@brightsparklabs.com>" \
+      org.label-schema.vendor="brightSPARK Labs" \
+      org.label-schema.schema-version="1.0.0-rc1" \
+      org.label-schema.vcs-url="https://github.com/brightsparklabs/ironbark" \
+      org.label-schema.vcs-ref=${VCS_REF} \
+      org.label-schema.build-date=${BUILD_DATE}
+
+# ------------------------------------------------------------------------------
+# FINAL STAGE - RKE2 CEPH VARIANT
+# ------------------------------------------------------------------------------
+
+# RKE2 Ceph target: includes RKE2 artifacts with Rook-Ceph for distributed storage.
+# Build with: docker build --target ironbark-rke2-ceph ...
+FROM ironbark-base AS ironbark-rke2-ceph
+
+# Set environment variables to indicate RKE2 Ceph variant.
+ENV IRONBARK_RKE2_AVAILABLE=true \
+    IRONBARK_RKE2_VARIANT=ceph
+
+# Copy RKE2 Ceph artifacts from the RKE2 Ceph builder stage to /app/resources/rke2.
+# This path is consistent with other resources and used by the artifact download API.
+COPY --from=builder-rke2-ceph-artifacts /build/resources/rke2/ resources/rke2/
+
+LABEL org.label-schema.name="ironbark-rke2-ceph" \
+      org.label-schema.description="Kubernetes management using the brightSPARK Labs opinionated deployment pattern (RKE2 with Rook-Ceph storage)" \
       org.opencontainers.image.authors="brightSPARK Labs <enquire@brightsparklabs.com>" \
       org.label-schema.vendor="brightSPARK Labs" \
       org.label-schema.schema-version="1.0.0-rc1" \
