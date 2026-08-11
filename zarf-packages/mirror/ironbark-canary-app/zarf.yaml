@@ -48,6 +48,8 @@ components:
       # Container image used by `cowboysysop/whoami` 6.0.0 (chart appVersion 1.11.0).
       # Pinned to a specific tag rather than `latest` for reproducible airgap builds.
       - docker.io/traefik/whoami:v1.11.0
-      # Test image used by the chart's `helm test` hook. Mirrored so that
-      # `helm test` works in disconnected environments.
-      - ghcr.io/cowboysysop/pytest:1.2.0
+      # NOTE: The upstream chart includes a `helm test` hook that requires
+      # `ghcr.io/cowboysysop/pytest:1.2.0` (several hundred MB). This image is
+      # intentionally NOT mirrored because Ironbark's GitOps deployment does not
+      # run `helm test`, and including it would significantly increase the package
+      # size without providing value in the default deployment workflow.
