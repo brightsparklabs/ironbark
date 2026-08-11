@@ -158,10 +158,10 @@ func InitPackages(ctx context.Context) error {
 		return fmt.Errorf("failed to deploy packages: %w", err)
 	}
 
-	// Mirror packages.
-	slog.Info("Mirroring packages...", "dir", packagesDir)
+	// Mirror packages (images and charts).
+	slog.Info("Mirroring packages (images and charts)...", "dir", packagesDir)
 	mirrorDir := filepath.Join(packagesDir, "mirror")
-	if err := zarf.MirrorPackages(mirrorDir); err != nil {
+	if err := zarf.MirrorPackagesWithCharts(ctx, mirrorDir); err != nil {
 		return fmt.Errorf("failed to mirror packages: %w", err)
 	}
 
@@ -458,14 +458,14 @@ func DeployAndMirrorPackage(ctx context.Context, packagePath string) error {
 		return fmt.Errorf("failed to copy package to temp dir: %w", err)
 	}
 
-	// Deploy packages in the directory.
+	// Deploy package.
 	if err := zarf.DeployPackages(tmpDir); err != nil {
 		return fmt.Errorf("failed to deploy package: %w", err)
 	}
 
-	// Mirror Helm charts from the package.
-	if err := zarf.MirrorPackageCharts(ctx, tmpDir); err != nil {
-		return fmt.Errorf("failed to mirror charts from package: %w", err)
+	// Mirror images and charts.
+	if err := zarf.MirrorPackagesWithCharts(ctx, tmpDir); err != nil {
+		return fmt.Errorf("failed to mirror package: %w", err)
 	}
 
 	slog.Info("Package deployed and charts mirrored", "package", packageName)

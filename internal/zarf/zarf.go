@@ -112,6 +112,22 @@ func MirrorPackages(dir string) error {
 	return runPackagesCommand(dir, []string{"mirror-resources"})
 }
 
+// MirrorPackagesWithCharts mirrors both images (via zarf mirror-resources) and
+// Helm charts (via custom OCI push logic) from all packages in a directory.
+func MirrorPackagesWithCharts(ctx context.Context, dir string) error {
+	// Mirror images using Zarf's built-in mirror-resources command.
+	if err := MirrorPackages(dir); err != nil {
+		return fmt.Errorf("failed to mirror images: %w", err)
+	}
+
+	// Mirror Helm charts using custom OCI registry push logic.
+	if err := MirrorPackageCharts(ctx, dir); err != nil {
+		return fmt.Errorf("failed to mirror charts: %w", err)
+	}
+
+	return nil
+}
+
 func runPackagesCommand(dir string, actions []string) error {
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		slog.Warn("Not searching for packages as directory does not exist", "dir", dir)

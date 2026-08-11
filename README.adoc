@@ -69,7 +69,7 @@ Upload your cluster's kubeconfig to Ironbark:
 [source,bash]
 ----
 curl -X POST http://localhost:8080/ironbark/api/v1/k8s/kubeconfig \
-  --data-binary @~/.kube/config
+  --data-binary @"$HOME/.kube/config"
 ----
 
 === Initialise Ironbark
@@ -89,6 +89,29 @@ This will:
 . Create and push the ArgoCD App of Apps repository.
 . Deploy the ArgoCD Application to start syncing.
 
+=== Verify ArgoCD is running
+
+. Forward the ArgoCD port to the local machine:
++
+[source,bash]
+----
+kubectl port-forward -n bsl-ironbark-argocd services/argocd-server 8443:443
+----
+. Login to the ArgoCD UI at https://localhost:8443 with the following credentials:
+[horizontal]
+Username:: `admin`
+Password:: Can be obtained via:
++
+[source,bash]
+----
+kubectl get secret \
+  -n bsl-ironbark-argocd \
+  argocd-initial-admin-secret -o jsonpath='{.data.password}' \
+  | base64 -d
+----
+. Verify all apps are healthy.
+. Click on `ironbark-canary-app` and verify there is only 1 pod running.
+
 === Clone the App of Apps Repository
 
 Once initialisation is complete, clone the repository to manage your applications:
@@ -100,6 +123,32 @@ cd ironbark-argocd-app-of-apps
 ----
 
 You can now add applications by editing the repository and pushing changes back through the Git proxy.
+
+=== Edit Canary Application
+
+. Update `chart/values.yaml` to use an alternative values file:
++
+[source,bash]
+----
+     values:
+       # Path to the Helm values YAML file to use.
+-      path: apps/ironbark-canary-app/values-blue.yaml
++      #path: apps/ironbark-canary-app/values-blue.yaml
+       # Example alternative:
+-      #path: apps/ironbark-canary-app/values-green.yaml
++      path: apps/ironbark-canary-app/values-green.yaml
+----
+
+. Commit and push the changes:
++
+[source,bash]
+----
+git commit -a -m 'Test canary app alternative values'
+git push
+----
+
+. In the ArgoCD UI, sync all apps.
+. Click on `ironbark-canary-app` and verify there are 2 pods running.
 
 == Usage
 
@@ -139,7 +188,7 @@ Upload a kubeconfig:
 [source,bash]
 ----
 curl -X POST http://localhost:8080/ironbark/api/v1/k8s/kubeconfig \
-  --data-binary @~/.kube/config
+  --data-binary @"$HOME/.kube/config"
 ----
 
 Retrieve the active kubeconfig:
