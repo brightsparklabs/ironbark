@@ -96,6 +96,21 @@ func Serve(ctx context.Context, apiPort int, gitPort int, apiTimeoutSecs int, gi
 
 // registerRoutes wires all HTTP handlers onto the provided mux.
 func registerRoutes(mux *http.ServeMux) {
+	// Welcome page - always available at root.
+	mux.HandleFunc("GET /{$}", handleWelcomePage)
+
+	// Welcome page at /ironbark and /ironbark/ (exact matches using {$}).
+	// The {$} prevents these from matching /ironbark/docs/ or other sub-paths.
+	mux.HandleFunc("GET /ironbark/{$}", handleWelcomePage)
+
+	// Documentation - only available if README.html exists.
+	if docsReadmeExists() {
+		mux.HandleFunc("GET /ironbark/docs/{$}", handleDocsReadme)
+		slog.Info("README.html found, registered /ironbark/docs/ endpoint")
+	} else {
+		slog.Info("README.html not found, /ironbark/docs/ endpoint not registered")
+	}
+
 	// Health and diagnostics.
 	mux.HandleFunc("GET /ironbark/api/v1/health", handleHealth)
 	mux.HandleFunc("GET /ironbark/api/v1/version", handleVersion)

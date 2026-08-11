@@ -1,6 +1,118 @@
 {
   "lockfile_version": "1",
   "packages": {
+    "asciidoc@latest": {
+      "last_modified": "2026-08-01T16:34:20Z",
+      "resolved": "github:NixOS/nixpkgs/a5cbcfe954791221bfffe2307f7d1a1bf61a871e#asciidoc",
+      "source": "devbox-search",
+      "version": "10.2.1",
+      "systems": {
+        "aarch64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/8sa1i5ha0s6fz3wjvkpn8c2jg3cxd6as-asciidoc-10.2.1",
+              "default": true
+            },
+            {
+              "name": "dist",
+              "path": "/nix/store/hfs03810r6bq6lgbqyi3k7cz9wjp7217-asciidoc-10.2.1-dist"
+            }
+          ],
+          "store_path": "/nix/store/8sa1i5ha0s6fz3wjvkpn8c2jg3cxd6as-asciidoc-10.2.1"
+        },
+        "aarch64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/5dxhxjzc9f0j0cm30vxn350gv4rf11r7-asciidoc-10.2.1",
+              "default": true
+            },
+            {
+              "name": "dist",
+              "path": "/nix/store/my3l80la8hwhrpdrn4ipp1mxxp03pfjz-asciidoc-10.2.1-dist"
+            }
+          ],
+          "store_path": "/nix/store/5dxhxjzc9f0j0cm30vxn350gv4rf11r7-asciidoc-10.2.1"
+        },
+        "x86_64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/q8w0llyywg3in749sgfapk6nak81z84m-asciidoc-10.2.1",
+              "default": true
+            },
+            {
+              "name": "dist",
+              "path": "/nix/store/v9ykm3ibrgkyaasfn83yam6csfkd92dx-asciidoc-10.2.1-dist"
+            }
+          ],
+          "store_path": "/nix/store/q8w0llyywg3in749sgfapk6nak81z84m-asciidoc-10.2.1"
+        },
+        "x86_64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/kj2y4r5xwawwij464r41qy5qa8zx4kbq-asciidoc-10.2.1",
+              "default": true
+            },
+            {
+              "name": "dist",
+              "path": "/nix/store/xgsqkjcxam08zjbgvc75z4chgympvc8c-asciidoc-10.2.1-dist"
+            }
+          ],
+          "store_path": "/nix/store/kj2y4r5xwawwij464r41qy5qa8zx4kbq-asciidoc-10.2.1"
+        }
+      }
+    },
+    "asciidoctor@latest": {
+      "last_modified": "2026-08-01T16:34:20Z",
+      "resolved": "github:NixOS/nixpkgs/a5cbcfe954791221bfffe2307f7d1a1bf61a871e#asciidoctor",
+      "source": "devbox-search",
+      "version": "2.0.26",
+      "systems": {
+        "aarch64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/5rdpdwldpmism5ifl027r20y3d3zk6ng-asciidoctor-2.0.26",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/5rdpdwldpmism5ifl027r20y3d3zk6ng-asciidoctor-2.0.26"
+        },
+        "aarch64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/szgdm2gvgj2dv3rgkina02rh824r4yf6-asciidoctor-2.0.26",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/szgdm2gvgj2dv3rgkina02rh824r4yf6-asciidoctor-2.0.26"
+        },
+        "x86_64-darwin": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/dz8mi3mnjb5x1wpxikr3pnc7abanja31-asciidoctor-2.0.26",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/dz8mi3mnjb5x1wpxikr3pnc7abanja31-asciidoctor-2.0.26"
+        },
+        "x86_64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/8awsvxx5zvl8w10ar3br5sjn8vgl5a49-asciidoctor-2.0.26",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/8awsvxx5zvl8w10ar3br5sjn8vgl5a49-asciidoctor-2.0.26"
+        }
+      }
+    },
     "git@latest": {
       "last_modified": "2026-07-05T19:27:47Z",
       "resolved": "github:NixOS/nixpkgs/f205b5574fd0cb7da5b702a2da51507b7f4fdd1b#git",

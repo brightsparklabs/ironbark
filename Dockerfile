@@ -326,6 +326,43 @@ RUN cat > VERSION.json <<EOF
 EOF
 
 # ------------------------------------------------------------------------------
+# BUILDER STAGE - DOCUMENTATION
+# ------------------------------------------------------------------------------
+
+# Dedicated stage for generating HTML and PDF documentation from README.adoc.
+# This keeps documentation tooling (Ruby, asciidoctor) isolated from other
+# builder stages and allows parallel builds.
+#
+# Output Location: /build/docs/README.html and /build/docs/README.pdf
+# These files are copied to /app/resources/docs/ in the final image stages.
+# See coupling with: internal/api/handlers_docs.go:handleDocsReadme()
+FROM ${UBUNTU_IMAGE} AS builder-documentation
+
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
+
+# Install Ruby and asciidoctor tooling for documentation generation.
+RUN apt-get update \
+      && apt-get install -y --no-install-recommends \
+        ruby \
+        ruby-dev \
+        make \
+        gcc \
+        g++ \
+      && gem install asciidoctor asciidoctor-pdf --no-document \
+      && apt-get clean \
+      && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build/docs
+
+# Copy only the README for documentation generation.
+COPY README.adoc .
+
+# Generate HTML and PDF documentation.
+# Output: README.html and README.pdf in /build/docs/
+RUN asciidoctor -b html5 -o README.html README.adoc
+RUN asciidoctor-pdf -o README.pdf README.adoc
+
+# ------------------------------------------------------------------------------
 # BUILDER STAGE - GOLANG
 # ------------------------------------------------------------------------------
 
@@ -445,6 +482,15 @@ WORKDIR /tmp
 WORKDIR /app
 COPY --from=builder-tooling /build/ .
 COPY --from=builder-golang /build/build/bin/ironbark bin/
+
+# Copy documentation for serving via API.
+# The README.html is served at GET /ironbark and GET / (redirect).
+# Location: /app/resources/docs/README.html
+# This path MUST match the readmePath in internal/api/handlers_docs.go:handleDocsReadme()
+# If this path changes, update the handler code accordingly.
+RUN mkdir -p /app/resources/docs
+COPY --from=builder-documentation /build/docs/README.html /app/resources/docs/
+COPY --from=builder-documentation /build/docs/README.pdf /app/resources/docs/
 
 # Default to running in serve mode (API server).
 # Users can override by specifying a command: docker run ... ironbark init all

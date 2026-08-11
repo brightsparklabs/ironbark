@@ -93,6 +93,23 @@ build/bin/ironbark: $(BUILD_INPUTS) README.adoc
 		&& go mod download \
 		&& CGO_ENABLED=0 GOOS=linux go build -ldflags "$(GO_LDFLAGS)" -o build/bin/ironbark .
 
+.PHONY: docs
+docs: docs-html docs-pdf ## Generate HTML and PDF documentation from README.
+
+.PHONY: docs-html
+docs-html: build/docs/README.html ## Generate HTML documentation from README.
+
+build/docs/README.html: README.adoc
+	@mkdir -p build/docs
+	asciidoctor -b html5 -o build/docs/README.html README.adoc
+
+.PHONY: docs-pdf
+docs-pdf: build/docs/README.pdf ## Generate PDF documentation from README.
+
+build/docs/README.pdf: README.adoc
+	@mkdir -p build/docs
+	asciidoctor-pdf -o build/docs/README.pdf README.adoc
+
 .PHONY: oci-image
 oci-image: oci-image-k3s oci-image-rke2 oci-image-rke2-ceph ## Build K3s, RKE2, and RKE2 Ceph variant OCI images.
 
@@ -201,6 +218,28 @@ oci-image-rke2-ceph-push: ## Build and push RKE2 Ceph variant OCI image to Docke
 		--push \
 		-t brightsparklabs/$(APP_NAME)-rke2-ceph:$(APP_VERSION) \
 		-t brightsparklabs/$(APP_NAME)-rke2-ceph:latest .
+
+.PHONY: dist
+dist: oci-image-save docs ## Create distribution with images and documentation.
+	@echo "Creating distribution in build/dist/"
+	@mkdir -p build/dist/images
+	@mkdir -p build/dist/docs
+	@# Hardlink image tarballs to save space.
+	@for img in build/images/*.tar; do \
+		if [ -f "$$img" ]; then \
+			ln "$$img" "build/dist/images/$$(basename $$img)"; \
+		fi; \
+	done
+	@# Copy documentation.
+	@cp build/docs/README.html build/dist/docs/
+	@cp build/docs/README.pdf build/dist/docs/
+	@echo ""
+	@echo "Distribution created:"
+	@ls -lh build/dist/images/
+	@ls -lh build/dist/docs/
+	@echo ""
+	@echo "Total size (with hardlinks):"
+	@du -sh build/dist/
 
 .PHONY: test-coverage
 test-coverage: ## Run unit tests with coverage reporting.
