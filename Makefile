@@ -221,25 +221,41 @@ oci-image-rke2-ceph-push: ## Build and push RKE2 Ceph variant OCI image to Docke
 
 .PHONY: dist
 dist: oci-image-save docs ## Create distribution with images and documentation.
-	@echo "Creating distribution in build/dist/"
-	@mkdir -p build/dist/images
-	@mkdir -p build/dist/docs
+	@echo "$$(date -Isec) Creating distribution in build/dist/"
+	@rm -rf build/dist
+	@mkdir -p build/dist
+
 	@# Hardlink image tarballs to save space.
 	@for img in build/images/*.tar; do \
 		if [ -f "$$img" ]; then \
-			ln "$$img" "build/dist/images/$$(basename $$img)"; \
+			ln "$$img" "build/dist/$$(basename $$img)"; \
 		fi; \
 	done
+
 	@# Copy documentation.
-	@cp build/docs/README.html build/dist/docs/
-	@cp build/docs/README.pdf build/dist/docs/
+	@ln build/docs/README.html build/dist/README.html
+	@ln build/docs/README.pdf build/dist/README.pdf
+
+	@# Generate checksums.
+	@cd build/dist && for f in *; do \
+		echo "$$(date -Isec) Generating checksum for $$f ..."; \
+		sha256sum "$$f" > "$$f.sha256"; \
+	done
+
 	@echo ""
-	@echo "Distribution created:"
-	@ls -lh build/dist/images/
-	@ls -lh build/dist/docs/
-	@echo ""
-	@echo "Total size (with hardlinks):"
+	@echo "Total size:"
 	@du -sh build/dist/
+
+.PHONY: dist-info
+dist-info: ## Prints out details of the distribution.
+	@echo ""
+	@echo Ironbark release: $(APP_VERSION)
+	@echo ""
+	@echo Contents:
+	@ls -1 build/dist | sed 's/^/  - /'
+	@echo ""
+	@echo "SHA-256 Checksums:"
+	@cd build/dist && (cat *.sha256 | sed 's/^/  /')
 
 .PHONY: test-coverage
 test-coverage: ## Run unit tests with coverage reporting.

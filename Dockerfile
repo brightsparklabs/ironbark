@@ -367,10 +367,6 @@ RUN asciidoctor-pdf -o README.pdf README.adoc
 # ------------------------------------------------------------------------------
 
 FROM golang:${GOLANG_VERSION} AS builder-golang
-ARG APP_VERSION=dev
-ARG VCS_REF=unknown
-ARG BUILD_TIME_UTC=unknown
-ARG BUILD_DATE=unknown
 
 # Use bash with strict error handling for every `RUN` in this stage —
 # same rationale as `builder-tooling`. Defensive: nothing in this stage
@@ -406,6 +402,15 @@ COPY cmd/ ./cmd/
 COPY internal/ ./internal/
 COPY resources/ ./resources/
 COPY main.go ./
+
+# NOTE: ARG declarations are placed AFTER dependency and source copy operations
+# to preserve Docker layer cache. Build metadata (APP_VERSION, BUILD_DATE, etc.)
+# changes on every build and would invalidate all subsequent layers if declared
+# at stage start. These ARGs are only needed for the final `make build` command.
+ARG APP_VERSION=dev
+ARG VCS_REF=unknown
+ARG BUILD_TIME_UTC=unknown
+ARG BUILD_DATE=unknown
 
 RUN make build \
       APP_VERSION=${APP_VERSION} \
