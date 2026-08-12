@@ -1,923 +1,333 @@
 = Ironbark
 :toc: left
 :sectnums:
+:sectnumlevels: 4
 
-image:https://img.shields.io/badge/License-MIT-blue.svg[License: MIT,link=LICENSE]
-
-Kubernetes management tooling that implements the brightSPARK Labs opinionated deployment pattern using Zarf and ArgoCD.
+Ironbark is a Kubernetes deployment tool designed for air-gapped environments.
+It simplifies the deployment and management of applications through a self-hosted ArgoCD App of Apps repository pattern.
 
 == Compatibility
 
+[cols="2,2,2,2,2"]
 |===
-|Ironbark Version |Zarf Version |RKE2 Version (RKE2 variant only)
+|Ironbark Version |Zarf Version |RKE2 Version |Rook Version (Ceph variant) |Ceph Version (Ceph variant)
 
-|0.x.y |0.64.0 |v1.33.5+rke2r1
+|0.x.y |0.64.0 |v1.33.5+rke2r1 |v1.15.8 |v18.2.4
 |===
 
 == Overview
 
-Ironbark is a CLI tool that bootstraps and manages Kubernetes clusters in air-gapped or disconnected environments using:
+Ironbark provides an API-first approach to deploying and managing Kubernetes applications in air-gapped or disconnected environments.
+It is designed to work with existing Kubernetes clusters or can perform a complete air-gapped deployment of a new cluster using RKE2 (preferred) or K3s.
+
+The tool makes it easy to manage application deployments through a self-hosted ArgoCD App of Apps repository pattern, providing:
+
+Air-gapped deployment:: Deploys required artifacts (container images, Helm charts, binaries) without requiring internet access on the target environment.
+GitOps workflow:: Uses ArgoCD with an App of Apps pattern for declarative application management.
+Self-hosted Git server:: Internal Gitea instance for repository hosting in disconnected environments.
+Multiple Kubernetes distributions:: Supports deploying either RKE2 or K3s (via Zarf) for cluster bootstrapping.
+Artifact management:: Download RKE2 installation files, zarf-init packages, and other resources via HTTP endpoints.
+
+Ironbark runs as a container and exposes:
 
 [horizontal]
-https://zarf.dev/[Zarf]:: For packaging and deploying applications to air-gapped Kubernetes clusters.
-https://argo-cd.readthedocs.io/[ArgoCD]:: For GitOps-based continuous deployment.
-https://argo-cd.readthedocs.io/en/latest/operator-manual/cluster-bootstrapping/#app-of-apps-pattern-alternative[App of Apps Pattern]:: For managing multiple applications declaratively.
-https://docs.rke2.io/[RKE2]:: (Optional) Rancher's security-focused Kubernetes distribution as an alternative to K3s.
+Port 8080:: REST API for cluster management, repository operations, and configuration.
+Port 3000:: Git HTTP proxy for cloning/pushing to the internal Gitea server.
 
-Ironbark automates the setup of a complete GitOps workflow in disconnected environments by:
+== Quick Start
 
-. Deploying core infrastructure components (ArgoCD, External Secrets Operator, etc.).
-. Setting up internal Git and OCI registry access.
-. Configuring ArgoCD to sync applications from internal repositories.
-. Providing a structured way to manage application deployments.
-
-=== Key Features
-
-[horizontal]
-Air-gapped deployment:: Works in completely disconnected environments.
-Zarf integration:: Packages all dependencies for offline installation.
-GitOps ready:: Automated ArgoCD setup with App of Apps pattern.
-Secure by default:: Automated secret management and TLS proxy configuration.
-Opinionated workflow:: Standardised deployment patterns across teams.
-Multiple Kubernetes distributions:: Supports both K3s (via Zarf) and RKE2 for cluster bootstrapping.
-
-== Architecture
-
-Ironbark manages several key components:
-
-[source]
-----
-┌─────────────────────────────────────────────────────────┐
-│                     Kubernetes Cluster                  │
-│                                                         │
-│  ┌────────────┐    ┌──────────────┐   ┌──────────────┐  │
-│  │   ArgoCD   │───>│  Zarf Git    │   │ Zarf OCI     │  │
-│  │            │    │  Server      │   │ Registry     │  │
-│  └────────────┘    └──────────────┘   └──────────────┘  │
-│        │                                      ^         │
-│        │ Syncs Apps                           │         │
-│        v                                      │         │
-│  ┌────────────────────────────────────────────┴──────┐  │
-│  │  App of Apps Repo (ironbark-argocd-app-of-apps)   │  │
-│  │  ├── chart/                (Helm templates)       │  │
-│  │  └── values/               (App configurations)   │  │
-│  └───────────────────────────────────────────────────┘  │
-│                                                         │
-│  Deployed Applications:                                 │
-│  ├── External Secrets Operator                          │
-│  ├── Internal TLS Proxy                                 │
-│  └── Your Applications (via App of Apps)                │
-└─────────────────────────────────────────────────────────┘
-----
-
-=== Components
-
-[horizontal]
-bsl-ironbark:: Core package containing ArgoCD, External Secrets Operator, and utilities.
-App of Apps Repo:: Git repository containing Helm charts and values for all applications.
-Internal TLS Proxy:: Caddy-based proxy for HTTPS access to internal HTTP services.
-Zarf Secrets Sync:: Ensures Zarf registry/repo credentials are available in all namespaces.
-
-== Installation
-
-[TIP]
---
-This README is embedded into every Ironbark binary at build time.
-It is available in airgapped environments by running:
-
-[source,bash]
-----
-# K3s variant (default).
-podman run --rm docker.io/brightsparklabs/ironbark docs
-
-# RKE2 variant.
-podman run --rm docker.io/brightsparklabs/ironbark-rke2 docs
-----
---
-
-[NOTE]
---
-Ironbark is available in two container image variants:
-
-[horizontal]
-`brightsparklabs/ironbark:latest`:: Default variant with K3s bootstrapping support via Zarf.
-`brightsparklabs/ironbark-rke2:latest`:: RKE2 variant with RKE2 installation artifacts.
-
-Both variants include the same Ironbark CLI and can deploy ArgoCD and applications once the Kubernetes cluster is running.
-The only difference is whether you want to bootstrap with K3s (via Zarf) or RKE2.
-Choose the RKE2 variant if you require RKE2's enhanced security and compliance features.
---
+This quick start assumes you have an existing Kubernetes cluster.
+If you need to install Kubernetes in an air-gapped environment, see <<Air-gapped Kubernetes Installation>>.
 
 === Prerequisites
 
-* The environment has a working Kubernetes cluster (EKS, RKE2, K3s, etc.).
-* `kubectl` is configured and connected to the cluster.
-* Zarf has been initialised on the cluster (`zarf init`).
+* A Kubernetes cluster (EKS, RKE2, K3s, GKE, etc.)
+* Access to the cluster's kubeconfig file
+* Container runtime (Podman or Docker)
 
-If the above are not met, refer to <<Bootstrapping an Environment>>.
-
-=== Shell Environment
-
-The remainder of this guide assumes the following three shell variables are exported in your current session.
-Set them once before working through any of the install or operational sections below; all subsequent bash snippets in this README reference them by name rather than re-stating the literal paths.
+=== Start Ironbark
 
 [source,bash]
 ----
-# Base directory beneath which the per-release-environment Ironbark
-# install trees live. This is the canonical brightSPARK Labs install
-# root and does not normally need to change.
-export IRONBARK_INSTALL_BASE_DIR="/opt/brightsparklabs/ironbark"
-
-# Release environment this shell session targets (e.g. `production`,
-# `staging`). Override per session to operate against a different
-# environment without touching siblings.
-export IRONBARK_RELEASE_ENVIRONMENT="production"
-
-# Per-release-environment install directory derived from the two
-# variables above. Do not override this directly - set
-# `IRONBARK_INSTALL_BASE_DIR` and/or `IRONBARK_RELEASE_ENVIRONMENT`
-# instead so the two stay in sync.
-export IRONBARK_INSTALL_DIR="${IRONBARK_INSTALL_BASE_DIR}/${IRONBARK_RELEASE_ENVIRONMENT}"
+# Start Ironbark in API server mode.
+podman run -d --rm \
+  --name ironbark \
+  --port 8080:8080 \
+  --port 3000:3000 \
+  docker.io/brightsparklabs/ironbark:latest
 ----
 
-=== Easy Install (recommended)
+[IMPORTANT]
+The above requires that your kubeconfig to use the cluster's external IP address.
+If your kubeconfig connects to `localhost` or `127.0.0.1` (i.e. a local cluster on host), then use `--network host`.
+This allows the container to access the cluster.
 
-For a one-step install, use `generate installer` to emit a self-contained bash installer.
-When piped through `bash`, the installer:
+=== Upload Kubeconfig
 
-. Creates the per-release-environment install directory tree under `/opt/brightsparklabs/ironbark/<release-environment>/`, including the subdirectories:
-.. `bin/`
-.. `data/zarf/init/`
-.. `data/repos/`
-. Drops a versioned launcher script into `<install-dir>/bin/` and points a generic `bin/ironbark` symlink at it.
-. Restores ownership of the install tree to the invoking user (`SUDO_USER` falling back to `USER`).
-. If `setfacl` is available, applies recursive default ACLs on the install base directory so new files created beneath it inherit the right permissions.
+Upload your cluster's kubeconfig to Ironbark:
 
 [source,bash]
 ----
-# Explicitly use registry prefix as Podman defaults to short-name resolution enforcement.
-export IRONBARK_SCRIPT_IMAGE=docker.io/brightsparklabs/ironbark:<version>
-
-# Generate the installer (targeting the release environment specified in
-# `${IRONBARK_RELEASE_ENVIRONMENT}`) and pipe it through bash. `sudo` is
-# required to write under `${IRONBARK_INSTALL_BASE_DIR}`; ownership of
-# the tree is reverted to the invoking user automatically.
-podman run --rm ${IRONBARK_SCRIPT_IMAGE} generate installer \
-    --install-base-dir "${IRONBARK_INSTALL_BASE_DIR}" \
-    --release-environment "${IRONBARK_RELEASE_ENVIRONMENT}" \
-  | sudo bash
-
-# Add the launcher to your $PATH (or run it directly):
-export PATH="${IRONBARK_INSTALL_DIR}/bin:${PATH}"
+curl -X POST http://localhost:8080/ironbark/api/v1/k8s/kubeconfig \
+  --data-binary @"$HOME/.kube/config"
 ----
 
-Available options for `ironbark generate installer`:
+=== Initialise Ironbark
 
-[horizontal]
-`--install-base-dir`:: Base directory under which the per-release-environment install directory is created. Default: `/opt/brightsparklabs/ironbark`.
-`--release-environment`:: Release environment the installer targets (e.g. `production`, `staging`). Default: `production`.
-
-All flags accepted by `ironbark generate launcher` (`--container-engine`, `--image`, `--kubeconfig`, `--no-interactive`, `--no-tty`) are also accepted by `generate installer` and are baked into the inlined launcher.
-
-If you would rather generate and install the launcher manually, follow <<Manual Install>> below instead.
-
-=== Manual Install
-
-Generate a launcher script using the Ironbark container.
-The launcher wraps the underlying container engine invocation so you can run `ironbark` directly:
+Run the smart initialisation endpoint to set up all components:
 
 [source,bash]
 ----
-# Pre-create the canonical Ironbark install tree and hand ownership to the
-# current user so subsequent `ironbark` invocations do not require `sudo`.
-sudo mkdir -p "${IRONBARK_INSTALL_DIR}"/{bin,data/zarf/init,data/repos}
-sudo chown -R "$(id -u):$(id -g)" "${IRONBARK_INSTALL_DIR}"
-
-# If `setfacl` is available, apply recursive default ACLs on the
-# per-environment install dir so any new files created beneath it
-# inherit your user/group with read/write permissions, and execute
-# permission for directories (and files that are already executable).
-if command -v setfacl >/dev/null 2>&1; then
-  sudo setfacl -R -d -m "u:$(id -un):rwX,g:$(id -gn):rwX" "${IRONBARK_INSTALL_DIR}"
-  sudo setfacl -R    -m "u:$(id -un):rwX,g:$(id -gn):rwX" "${IRONBARK_INSTALL_DIR}"
-fi
-
-# Generate a launcher script (defaults to Podman) and install it onto
-# your $PATH at the canonical location.
-podman run --rm ${IRONBARK_SCRIPT_IMAGE} generate launcher \
-  > "${IRONBARK_INSTALL_DIR}/bin/ironbark"
-chmod +x "${IRONBARK_INSTALL_DIR}/bin/ironbark"
-
-# Make sure the launcher is on your PATH for the rest of this guide. Add this
-# line to your shell profile (e.g. `~/.bashrc`, `~/.zshrc`) to make it
-# permanent.
-export PATH="${IRONBARK_INSTALL_DIR}/bin:${PATH}"
+curl -X POST http://localhost:8080/ironbark/api/v1/init
 ----
 
-Available options for `ironbark generate launcher`:
+This will:
 
-[horizontal]
-`--container-engine`:: Container engine to use (`podman` or `docker`). Default: `podman`.
-`--image`:: Container image reference for Ironbark. Default: `docker.io/brightsparklabs/ironbark:latest`.
-`--data-dir`:: Host directory mounted into the container as the Ironbark data directory. Default: `/opt/brightsparklabs/ironbark/production/data` (the canonical install location).
-`--kubeconfig`:: Host kubeconfig file mounted into the container. Default: `${HOME}/.kube/config`.
-`--no-interactive`:: Bake `IRONBARK_SCRIPT_NO_INTERACTIVE` on as the default in the generated script (useful for CI). Default: `false`.
-`--no-tty`:: Bake `IRONBARK_SCRIPT_NO_TTY` on as the default in the generated script (useful when piping or in CI). Default: `false`.
+. Initialise Zarf with the git-server component (if not already present).
+. Deploy Ironbark packages (ArgoCD, External Secrets Operator, etc.).
+. Create ArgoCD repository secrets for accessing the Zarf Git and OCI registry.
+. Create and push the ArgoCD App of Apps repository.
+. Deploy the ArgoCD Application to start syncing.
 
-The generated script:
+=== Verify ArgoCD is running
 
-* Attempts to create the host data directory if it does not exist.
-If the creation fails (e.g. permission denied) the script reports the error and exits with a non-zero status.
-* Relies on `IRONBARK_IN_CONTAINER=true` being baked into the Ironbark image so code (and shell scripts) can detect that they are running inside the container, regardless of whether the launcher or a direct `podman run` was used.
-* Forwards a number of useful host details into the container as `IRONBARK_HOST_*` environment variables so that Ironbark can correctly reference paths and identities on the host (e.g. when invoking nested container engines):
+. Forward the ArgoCD port to the local machine:
 +
+[source,bash]
+----
+kubectl port-forward -n bsl-ironbark-argocd services/argocd-server 8443:443
+----
+. Login to the ArgoCD UI at https://localhost:8443 with the following credentials:
 [horizontal]
-`IRONBARK_HOST_USER`:: Effective host user (`${SUDO_USER:-$USER}`).
-`IRONBARK_HOST_UID`:: Effective host user id (`${SUDO_UID:-$(id -u)}`).
-`IRONBARK_HOST_GID`:: Effective host group id (`${SUDO_GID:-$(id -g)}`).
-`IRONBARK_HOST_HOSTNAME`:: Hostname of the invoking machine.
-`IRONBARK_HOST_PWD`:: Working directory the launcher was invoked from.
-`IRONBARK_HOST_OS`:: Host operating system (`uname -s`).
-`IRONBARK_HOST_ARCH`:: Host CPU architecture (`uname -m`).
-`IRONBARK_HOST_DATA_DIR`:: Host path of the mounted data directory.
-`IRONBARK_HOST_KUBECONFIG`:: Host path of the mounted kubeconfig file.
-`IRONBARK_HOST_CONTAINER_ENGINE`:: Container engine used to run Ironbark (`podman` or `docker`).
-`IRONBARK_HOST_LAUNCHER_VERSION`:: Version of the Ironbark binary that generated the launcher script.
-`IRONBARK_HOST_LAUNCHER_COMMIT`:: Short Git commit hash of the Ironbark binary that generated the launcher script.
-`IRONBARK_HOST_LAUNCHER_BUILD_TIME`:: UTC ISO 8601 timestamp recording when the Ironbark binary that generated the launcher script was built.
-`IRONBARK_HOST_LAUNCHER_GENERATED_AT`:: Timestamp recording when the launcher script itself was generated.
-* Honours `IRONBARK_SCRIPT_NO_INTERACTIVE` and `IRONBARK_SCRIPT_NO_TTY` at runtime: define either variable to ANY value (e.g. `true`, `1`, `yes`) to disable `--interactive` / `--tty` without regenerating the script.
-Leave them unset to keep the flags enabled.
-* Honours `IRONBARK_SCRIPT_VERBOSE`: define it to ANY value to print the resolved settings (container engine, image, mounts, flag state, forwarded host env vars) to stderr before invoking the container engine.
+Username:: `admin`
+Password:: Can be obtained via:
++
+[source,bash]
+----
+kubectl get secret \
+  -n bsl-ironbark-argocd \
+  argocd-initial-admin-secret -o jsonpath='{.data.password}' \
+  | base64 -d
+----
+. Verify all apps are healthy.
+. Click on `ironbark-canary-app` and verify there is only 1 pod running.
 
-To generate a launcher targeting Docker instead of Podman (substitute `podman` for `docker` in the bootstrap command from the previous example):
+=== Clone the App of Apps Repository
+
+Once initialisation is complete, clone the repository to manage your applications:
 
 [source,bash]
 ----
-docker run --rm docker.io/brightsparklabs/ironbark generate launcher \
-  --container-engine docker \
-  > "${IRONBARK_INSTALL_DIR}/bin/ironbark"
-chmod +x "${IRONBARK_INSTALL_DIR}/bin/ironbark"
+git clone http://localhost:3000/zarf-git-user/ironbark-argocd-app-of-apps.git
+cd ironbark-argocd-app-of-apps
 ----
 
-=== Bootstrapping an Environment
+You can now add applications by editing the repository and pushing changes back through the Git proxy.
 
-[IMPORTANT]
---
-This section applies if any of the following are true:
+=== Edit Canary Application
 
-* The environment does not have a working Kubernetes cluster.
-* Zarf has not been initialised on the cluster (`zarf init`).
---
-
-==== Extract Bootstrap Script
-
-When bootstrapping an fresh environment you need the `zarf` CLI and the `zarf-init-*.tar.zst` package on the host itself.
-The Ironbark container ships both at `/app/resources/zarf/init`.
-These can be extracted using a host-side extraction script.
-
+. Update `chart/values.yaml` to use an alternative values file:
++
 [source,bash]
 ----
-# Generate the extraction script using the launcher installed above and run
-# it on the host.
-ironbark generate zarf-bootstrap > extract-zarf.sh
-chmod +x extract-zarf.sh
-./extract-zarf.sh
-
-# Ensure the current user can run initialise the cluster.
-sudo chown -R "$(id -u):$(id -g)" "${IRONBARK_INSTALL_DIR}/data/zarf/init"
+     values:
+       # Path to the Helm values YAML file to use.
+-      path: apps/ironbark-canary-app/values-blue.yaml
++      #path: apps/ironbark-canary-app/values-blue.yaml
+       # Example alternative:
+-      #path: apps/ironbark-canary-app/values-green.yaml
++      path: apps/ironbark-canary-app/values-green.yaml
 ----
 
-Available options for `ironbark generate zarf-bootstrap`:
-
-[horizontal]
-`--container-engine`, `-e`:: Container engine to use (`podman` or `docker`). Default: `podman`.
-`--image`, `-i`:: Container image reference for Ironbark. Default: `docker.io/brightsparklabs/ironbark:latest`.
-`--source-path`, `-s`:: Path inside the container containing the Zarf CLI and init package. Default: `/app/resources/zarf/init`.
-`--output-dir`, `-o`:: Host directory which will receive the extracted Zarf assets. Default: `/opt/brightsparklabs/ironbark/production/data/zarf/init` (NOTE: This is inside the launcher's default data directory so no extra mount is required).
-
-*The generated script:*
-
-* Validates that the requested container engine is available on `PATH`.
-* Creates the output directory if it does not already exist.
-* Creates a throwaway Ironbark container, copies the Zarf assets out, then removes the throwaway container.
-* Honours the following runtime overrides so you can change the defaults without regenerating the script:
-.. `IRONBARK_SCRIPT_CONTAINER_ENGINE`
-.. `IRONBARK_SCRIPT_IMAGE`
-.. `IRONBARK_SCRIPT_ZARF_SOURCE_PATH`
-.. `IRONBARK_SCRIPT_ZARF_OUTPUT_DIR`
-.. `IRONBARK_SCRIPT_VERBOSE`
-* Does NOT run `zarf init` itself; the operator retains explicit control over the bootstrap step.
-
-[IMPORTANT]
---
-Before emitting the script, `generate zarf-bootstrap` verifies that the Zarf assets (the `zarf` CLI and a matching `zarf-init-*.tar.zst` package) actually exist at the configured source path.
-This catches misconfigurations such as a stale image or a wrong `--source-path` early, instead of letting the operator discover the problem after running the resulting script on the host.
---
-
-==== Bootstrap an Existing Cluster
-
-[NOTE]
---
-This section applies when the following are true:
-
-. The environment has a working Kubernetes cluster (EKS, K3s, etc.).
-. `kubectl` is configured and connected to the cluster.
-. Zarf has not been initialised on the cluster (`zarf init`).
---
-
-Bootstrap the environment by running the script:
-
+. Commit and push the changes:
++
 [source,bash]
 ----
-# Bootstrap the host (installs the Zarf in-cluster components).
-cd "${IRONBARK_INSTALL_DIR}/data/zarf/init"
-./zarf init --components=git-server --confirm
+git commit -a -m 'Test canary app alternative values'
+git push
 ----
 
-==== Bootstrap a New Cluster
-
-[NOTE]
---
-This section applies when the following are true:
-
-. A new Kubernetes cluster should be created.
---
-
-IMPORTANT: If `fapolicyd` is running ensure the correct rules have been generated as per <<Generating fapolicyd Rules>>.
-
-Bootstrap the environment by running the script:
-
-[source,bash]
-----
-# NOTE: Must be run as root (not sudo) in order to install K3s.
-sudo -i
-
-# Bootstrap the host (installs K3s and the Zarf in-cluster components).
-cd "${IRONBARK_INSTALL_DIR}/data/zarf/init"
-./zarf init --components k3s,git-server --confirm
-----
-
-==== Bootstrap with RKE2 (Alternative to K3s)
-
-[NOTE]
---
-This section applies when you want to use RKE2 instead of K3s for the Kubernetes cluster.
-RKE2 is Rancher's next-generation Kubernetes distribution focused on security and compliance.
---
-
-Ironbark provides an RKE2 variant container image (`brightsparklabs/ironbark-rke2:latest`) that includes all necessary RKE2 installation artifacts for air-gapped deployment.
-
-===== Extract RKE2 Artifacts
-
-First, extract the RKE2 installation files from the RKE2 variant container:
-
-[source,bash]
-----
-# Generate the RKE2 extraction script using the RKE2 variant image.
-# Must use ironbark-rke2 image, not the default ironbark image.
-docker run --rm docker.io/brightsparklabs/ironbark-rke2:latest \
-  generate rke2-bootstrap > extract-rke2.sh
-chmod +x extract-rke2.sh
-./extract-rke2.sh
-
-# Ensure the current user can access the extracted files.
-sudo chown -R "$(id -u):$(id -g)" "${IRONBARK_INSTALL_DIR}/data/rke2"
-----
-
-Available options for `ironbark generate rke2-bootstrap`:
-
-[horizontal]
-`--container-engine`, `-e`:: Container engine to use (`podman` or `docker`). Default: `podman`.
-`--image`, `-i`:: Container image reference for Ironbark RKE2 variant. Default: `docker.io/brightsparklabs/ironbark-rke2:latest`.
-`--source-path`, `-s`:: Path inside the container containing the RKE2 installation artifacts. Default: `/app/resources/rke2`.
-`--output-dir`, `-o`:: Host directory which will receive the extracted RKE2 assets. Default: `/opt/brightsparklabs/ironbark/production/data/rke2`.
-
-*The generated script:*
-
-* Validates that the requested container engine is available on `PATH`.
-* Creates the output directory if it does not already exist.
-* Creates a throwaway Ironbark container, copies the RKE2 assets out, then removes the throwaway container.
-* Honours the following runtime overrides so you can change the defaults without regenerating the script:
-.. `IRONBARK_SCRIPT_CONTAINER_ENGINE`
-.. `IRONBARK_SCRIPT_IMAGE`
-.. `IRONBARK_SCRIPT_RKE2_SOURCE_PATH`
-.. `IRONBARK_SCRIPT_RKE2_OUTPUT_DIR`
-.. `IRONBARK_SCRIPT_VERBOSE`
-* Does NOT run the RKE2 installation itself; the operator retains explicit control over the installation step.
-
-The extraction script downloads the following artifacts:
-
-* `install.sh` - RKE2 installation script
-* `rke2.linux-amd64.tar.gz` - RKE2 binaries
-* `rke2-images-cilium.linux-amd64.tar.zst` - Container images with Cilium CNI
-* `sha256sum-amd64.txt` - Checksums for verification
-* `VERSION.json` - RKE2 version information
-
-[IMPORTANT]
---
-The extracted artifacts include Cilium container images.
-To use Cilium, you must add `cni: cilium` to `/etc/rancher/rke2/config.yaml` (see configuration step below).
-Without this setting, RKE2 will default to Canal (Calico + Flannel) and the Cilium images will not be used.
---
-
-===== Install RKE2
-
-After extracting the artifacts, install RKE2 in air-gapped mode:
-
-[source,bash]
-----
-cd "${IRONBARK_INSTALL_DIR}/data/rke2"
-
-# Install RKE2 using the extracted artifacts (air-gapped installation).
-sudo INSTALL_RKE2_ARTIFACT_PATH="${IRONBARK_INSTALL_DIR}/data/rke2" ./install.sh
-----
-
-===== Configure RKE2
-
-Create the RKE2 configuration file with Cilium CNI.
-The extracted artifacts include a template configuration file:
-
-[source,bash]
-----
-# Copy the template configuration to the RKE2 config directory.
-sudo mkdir -p /etc/rancher/rke2
-sudo cp /tmp/rke2-cilium/config.yaml.template /etc/rancher/rke2/config.yaml
-
-# Review and modify the configuration as needed.
-sudo vi /etc/rancher/rke2/config.yaml
-----
-
-The template configuration includes:
-
-[source,yaml]
-----
-# RKE2 server configuration
-# See: https://docs.rke2.io/install/configuration
-
-# Use Cilium as the CNI (Container Network Interface).
-# Cilium provides eBPF-based networking, security, and observability.
-cni: cilium
-
-# Make kubeconfig readable by non-root users.
-write-kubeconfig-mode: "0644"
-
-# Additional TLS SANs for API server certificate.
-# Add any additional hostnames or IPs that clients will use to access the API server.
-tls-san:
-  - localhost
-  - 127.0.0.1
-  # - your-hostname.example.com
-  # - 192.168.1.100
-----
-
-[NOTE]
---
-The `cni: cilium` configuration is required to use Cilium.
-Without this setting, RKE2 defaults to Canal (Calico + Flannel).
-The extracted RKE2 artifacts include Cilium container images (`rke2-images-cilium.linux-amd64.tar.zst`).
---
-
-===== Start RKE2
-
-Enable and start the RKE2 service:
-
-[source,bash]
-----
-# For server node (control plane).
-sudo systemctl enable rke2-server.service
-sudo systemctl start rke2-server.service
-
-# Wait for RKE2 to be ready (may take 1-2 minutes).
-sudo systemctl status rke2-server.service
-
-# Configure kubectl to use the RKE2 cluster.
-export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
-/var/lib/rancher/rke2/bin/kubectl get nodes
-----
-
-[NOTE]
---
-On a single-node cluster, you may see one Cilium operator pod in `Pending` status.
-This is normal and expected behaviour.
-
-The Cilium operator deployment is configured for 2 replicas (high availability), but both replicas try to bind to the same host ports.
-On a single-node cluster, only one replica can bind to those ports, so the second remains pending.
-
-Check the status:
-[source,bash]
-----
-/var/lib/rancher/rke2/bin/kubectl get deployment -n kube-system cilium-operator
-----
-
-You should see `READY 1/2`, which means 1 of 2 desired replicas is running.
-This is sufficient for full Cilium operation.
-The second replica will automatically schedule when you add a second node to the cluster.
---
-
-===== Adding Additional Nodes
-
-RKE2 supports two types of nodes:
-
-[horizontal]
-Server nodes:: Control plane + etcd + worker (recommended for small deployments, provides HA for control plane)
-Agent nodes:: Worker only (for larger deployments where you want dedicated control plane nodes)
-
-====== Adding Server Nodes (Control Plane + Worker)
-
-For small deployments, adding additional server nodes provides high availability for the control plane while also serving as workers.
-
-*On the first server node:*
-
-[source,bash]
-----
-# Get the server token (required for additional server nodes to join).
-sudo cat /var/lib/rancher/rke2/server/token
-----
-
-*On each additional server node:*
-
-[source,bash]
-----
-# Extract and install RKE2 using the same process as the first server node.
-# (Use the same ironbark-rke2 image and bootstrap script)
-
-# Create server configuration.
-sudo mkdir -p /etc/rancher/rke2
-sudo tee /etc/rancher/rke2/config.yaml > /dev/null <<EOF
-# RKE2 server configuration (joining existing cluster)
-server: https://<FIRST_SERVER_IP>:9345
-token: <SERVER_TOKEN>
-
-# Use Cilium as the CNI
-cni: cilium
-
-# Make kubeconfig readable by non-root users
-write-kubeconfig-mode: "0644"
-
-# Additional TLS SANs for API server certificate
-tls-san:
-  - localhost
-  - 127.0.0.1
-EOF
-
-# Stage the RKE2 images.
-cd /path/to/rke2-artifacts
-sudo mkdir -p /var/lib/rancher/rke2/agent/images/
-sudo cp rke2-images-cilium.linux-amd64.tar.zst /var/lib/rancher/rke2/agent/images/
-
-# Start the RKE2 server service.
-sudo systemctl enable rke2-server.service
-sudo systemctl start rke2-server.service
-----
-
-Replace `<FIRST_SERVER_IP>` with the IP address of your first server node and `<SERVER_TOKEN>` with the token from `/var/lib/rancher/rke2/server/token`.
-
-[IMPORTANT]
---
-For production high availability, you should have an odd number of server nodes (3 or 5 recommended) to maintain etcd quorum.
---
-
-====== Adding Agent Nodes (Worker Only)
-
-For larger deployments where you want dedicated control plane nodes.
-
-*On any server node:*
-
-[source,bash]
-----
-# Get the node token (required for agent nodes to join).
-sudo cat /var/lib/rancher/rke2/server/node-token
-----
-
-*On each agent node:*
-
-[source,bash]
-----
-# Extract and install RKE2 using the same process as the server node.
-# (Use the same ironbark-rke2 image and bootstrap script)
-
-# Create agent configuration.
-sudo mkdir -p /etc/rancher/rke2
-sudo tee /etc/rancher/rke2/config.yaml > /dev/null <<EOF
-# RKE2 agent configuration
-server: https://<SERVER_IP>:9345
-token: <NODE_TOKEN>
-EOF
-
-# Stage the RKE2 images.
-cd /path/to/rke2-artifacts
-sudo mkdir -p /var/lib/rancher/rke2/agent/images/
-sudo cp rke2-images-cilium.linux-amd64.tar.zst /var/lib/rancher/rke2/agent/images/
-
-# Start the RKE2 agent service.
-sudo systemctl enable rke2-agent.service
-sudo systemctl start rke2-agent.service
-----
-
-Replace `<SERVER_IP>` with the IP address of any server node and `<NODE_TOKEN>` with the token from `/var/lib/rancher/rke2/server/node-token`.
-
-====== Verifying Node Addition
-
-Once nodes join, verify on any server node:
-
-[source,bash]
-----
-/var/lib/rancher/rke2/bin/kubectl get nodes
-----
-
-You should see all nodes listed.
-Server nodes will show roles `control-plane,etcd,master` while agent nodes show `<none>`.
-
-The pending Cilium operator pod will automatically schedule to an available node once a second node joins.
-
-===== Initialize Zarf on RKE2
-
-After RKE2 is running, you can initialize Zarf without the K3s component:
-
-[source,bash]
-----
-# Extract Zarf assets (if not already done).
-ironbark generate zarf-bootstrap > extract-zarf.sh
-chmod +x extract-zarf.sh
-./extract-zarf.sh
-
-# Initialize Zarf on the RKE2 cluster.
-cd "${IRONBARK_INSTALL_DIR}/data/zarf/init"
-./zarf init --components=git-server --confirm
-----
-
-==== Generating fapolicyd Rules
-
-Hosts that enforce `fapolicyd` need explicit rules to allow execution of the binaries Ironbark relies on (the extracted `zarf` CLI and the installed `k3s` CLI).
-Generate a matching rules file with:
-
-[source,bash]
-----
-# Defaults assume `/opt/brightsparklabs/ironbark/production/data/zarf/init/zarf` and
-# `/usr/local/bin/k3s`.
-ironbark generate fapolicy-rules \
-  --zarf-path "${IRONBARK_INSTALL_DIR}/data/zarf/init/zarf" \
-  --k3s-path /usr/local/bin/k3s \
-  | sudo tee /etc/fapolicyd/rules.d/00-ironbark.rules
-sudo systemctl restart fapolicyd
-----
-
-Available options for `ironbark generate fapolicy-rules`:
-
-[horizontal]
-`--zarf-path`:: Absolute host path of the extracted Zarf CLI. Default: `/opt/brightsparklabs/ironbark/production/data/zarf/init/zarf` (matches the default `--output-dir` of `generate zarf-bootstrap`).
-`--k3s-path`:: Absolute host path of the installed K3s CLI. Default: `/usr/local/bin/k3s`.
-
-The generated rules file allows execution and reading of each supplied binary.
+. In the ArgoCD UI, sync all apps.
+. Click on `ironbark-canary-app` and verify there are 2 pods running.
 
 == Usage
 
-=== Quick Start
+Ironbark operates primarily through its REST API.
+All cluster management, repository operations, and configuration are performed via HTTP endpoints.
 
-To set up a complete Ironbark deployment:
+=== Health & Diagnostics
 
-[source,bash]
-----
-# Initialise all Ironbark components.
-ironbark init all
-----
-
-This command will:
-
-. Deploy Ironbark packages (ArgoCD, External Secrets Operator, etc.).
-. Mirror required container images to the Zarf registry.
-. Create ArgoCD repository secrets for accessing Zarf Git and OCI registry.
-. Initialise the ArgoCD App of Apps repository.
-. Deploy the ArgoCD App of Apps to start syncing applications.
-
-=== Step-by-Step Initialisation
-
-You can also run individual initialisation steps:
+Check API server health:
 
 [source,bash]
 ----
-# 1. Deploy and mirror Ironbark packages.
-#    Any Helm charts found inside mirror packages are also pushed to the
-#    in-cluster registry under `oci://<registry>/ironbark/charts/<provenance>/<chart>:<version>`. <1>
-ironbark init packages
-
-# 2. Set up ArgoCD repository secrets.
-ironbark init argocd-repo-secrets
-
-# 3. Create and push the App of Apps repository.
-ironbark init argocd-app-of-apps-repo
-
-# 4. Deploy the ArgoCD App of Apps.
-ironbark init argocd-app
-----
-<1> See <<Adding New Applications>> for details.
-
-=== Managing Applications
-
-After initialisation, manage your applications by:
-
-. Edit the App of Apps repository locally:
-+
-[source,bash]
-----
-cd "${IRONBARK_HOST_DATA_DIR}/repos/ironbark-argocd-app-of-apps"
-
-# Add applications to chart/values.yaml.
-# Add value files to values/<app-name>/.
+curl http://localhost:8080/ironbark/api/v1/health
+# Response: {"status":"healthy"}
 ----
 
-. Push changes to the internal Git server:
-+
-[source,bash]
-----
-ironbark argo push
-----
-
-. ArgoCD will automatically sync the changes and deploy your applications.
-
-=== Invoking Bundled Tools
-
-The Ironbark container image bundles a number of CLI tools under `/app/bin/` so they are available on disconnected/airgapped hosts without separate installation.
-Invoke them via `ironbark exec`:
+Get version information:
 
 [source,bash]
 ----
-# List the available tools (auto-discovered at runtime; a shell
-# binary is also auto-registered if the image ships one).
-ironbark exec --help
-
-# Forward all remaining args verbatim to the underlying tool.
-ironbark exec <tool> [args...]
-
-# Drop into an interactive shell inside the container - useful for
-# one-off troubleshooting or ad-hoc commands that are not exposed
-# elsewhere. The exact subcommand name depends on what the image
-# ships (run `ironbark exec --help` to see).
-ironbark exec <shell>
+curl http://localhost:8080/ironbark/api/v1/version
+# Response: {"version":"v0.0.2","commit":"abc1234","buildTime":"2026-07-15T00:00:00Z"}
 ----
 
-Signal handling, exit codes and stdio behave exactly as if you had invoked the tool directly: under the hood `ironbark exec` `execve`'s into the requested binary.
-
-The remaining sections of this guide use tool names directly (e.g. `kubectl`, `zarf`).
-On hosts where those tools are not installed locally, replace each invocation with `ironbark exec <tool>` to use the version bundled in the image.
-
-=== Accessing ArgoCD
+View configuration settings:
 
 [source,bash]
 ----
-# Get ArgoCD admin password.
-kubectl get secret -n bsl-ironbark-argocd \
-  argocd-initial-admin-secret -o jsonpath='{.data.password}' \
-  | base64 -d
-
-# Port forward to ArgoCD UI.
-kubectl port-forward -n bsl-ironbark-argocd services/argocd-server 8443:443
-
-# Open https://localhost:8443 in your browser.
-# Username: admin.
-# Password: (from command above).
+curl http://localhost:8080/ironbark/api/v1/debug/settings
+# Response: Array of configuration values with sources
 ----
 
-=== Accessing Zarf Git Server
+=== Kubeconfig Management
+
+Upload a kubeconfig:
 
 [source,bash]
 ----
-# Connect to Git server.
-zarf connect git --local-port 5002
-
-# Get credentials.
-zarf tools get-creds git
-
-# Access at http://localhost:5002.
+curl -X POST http://localhost:8080/ironbark/api/v1/k8s/kubeconfig \
+  --data-binary @"$HOME/.kube/config"
 ----
 
-== Configuration
-
-Ironbark uses environment variables for configuration:
-
-[cols="4a,8a", frame=none, grid=rows]
-|===
-|Environment Variable |Description
-
-|`IRONBARK_DATA_DIR`
-|Directory inside the container for storing application data (repos, etc.).
-
-Default: `/mnt/data`
-
-|`IRONBARK_HOST_DATA_DIR`
-|Host directory bind-mounted into the container as the application data directory.
-Set automatically by the generated launcher script.
-
-Default: `/opt/brightsparklabs/ironbark/production/data`
-
-|`IRONBARK_SCRIPT_CONTAINER_ENGINE`
-|Container engine used by the generated launcher script (`podman` or `docker`).
-
-Default: `podman`
-
-|`IRONBARK_SCRIPT_IMAGE`
-|Container image reference used by the generated launcher script.
-
-Default: `docker.io/brightsparklabs/ironbark:latest`
-
-|`IRONBARK_SCRIPT_NO_INTERACTIVE`
-|When defined to ANY value, the generated launcher script omits the `--interactive` flag (useful in CI).
-Leave unset to keep `--interactive` enabled.
-
-Default: _unset_
-
-|`IRONBARK_SCRIPT_NO_TTY`
-|When defined to ANY value, the generated launcher script omits the `--tty` flag (useful when piping or in CI).
-Leave unset to keep `--tty` enabled.
-
-Default: _unset_
-
-|`IRONBARK_SCRIPT_VERBOSE`
-|When defined to ANY value, the generated launcher script prints the resolved settings (container engine, image, mounts, flag state, forwarded host env vars) to stderr before invoking the container engine.
-
-Default: _unset_
-
-|`IRONBARK_IN_CONTAINER`
-|Sentinel baked into the Ironbark container image (set to `true`).
-Code can use this to detect that it is running inside the container, regardless of how the container was launched (the launcher script, an ad-hoc `podman run`, etc.).
-
-Default: _unset_ (only set inside the Ironbark container image)
-
-|
-`IRONBARK_HOST_USER` +
-`IRONBARK_HOST_UID` +
-`IRONBARK_HOST_GID` +
-`IRONBARK_HOST_HOSTNAME`
-`IRONBARK_HOST_PWD` +
-`IRONBARK_HOST_OS` +
-`IRONBARK_HOST_ARCH` +
-`IRONBARK_HOST_KUBECONFIG` +
-`IRONBARK_HOST_CONTAINER_ENGINE` +
-`IRONBARK_HOST_LAUNCHER_VERSION` +
-`IRONBARK_HOST_LAUNCHER_COMMIT` +
-`IRONBARK_HOST_LAUNCHER_BUILD_TIME` +
-`IRONBARK_HOST_LAUNCHER_GENERATED_AT`
-|Host details forwarded into the container by the generated launcher script.
-See the launcher generator docs above for descriptions of each variable.
-
-Default: _unset_
-|===
-
-== Diagnostic Commands
-
-Ironbark groups its troubleshooting subcommands under `ironbark debug`.
-These commands never modify any external system; they only read and print information that Ironbark already has access to.
-
-=== Inspecting Settings
-
-`ironbark debug settings` prints the full catalogue of `IRONBARK_*` environment variables Ironbark knows about, along with each variable's current effective value, declared default, source (env or default), scope, and a short description.
+Retrieve the active kubeconfig:
 
 [source,bash]
 ----
-# Default human-readable table.
-ironbark debug settings
-
-# Machine-readable output for piping into other tools.
-ironbark debug settings --format json
-ironbark debug settings --format yaml
+curl http://localhost:8080/ironbark/api/v1/k8s/kubeconfig
 ----
 
-The catalogue in `src/internal/settings/settings.go` is the single source of truth for every `IRONBARK_*` variable understood by the system.
-The unit tests for that package enforce that variable names are unique, well-formed (`IRONBARK_*` prefix), and that every Go-consumed accessor has a matching catalogue entry, so the output of `debug settings` cannot drift from the real list of variables Ironbark reads.
+Delete the uploaded kubeconfig (reverts to mounted kubeconfig):
 
-Variables marked sensitive (currently none) are rendered with their values redacted as `<redacted>` regardless of the chosen output format.
+[source,bash]
+----
+curl -X DELETE http://localhost:8080/ironbark/api/v1/k8s/kubeconfig
+----
+
+=== Repository Operations
+
+List repositories in the internal Git server:
+
+[source,bash]
+----
+curl http://localhost:8080/ironbark/api/v1/repo
+# Response: {"repositories":[{"name":"ironbark-argocd-app-of-apps",...}],"count":1}
+----
+
+=== Initialisation Operations
+
+Initialise all components (idempotent, auto-detects completed steps):
+
+[source,bash]
+----
+curl -X POST http://localhost:8080/ironbark/api/v1/init
+----
+
+Initialise specific components:
+
+[source,bash]
+----
+# Initialise only Zarf with git-server.
+curl -X POST http://localhost:8080/ironbark/api/v1/init/zarf
+
+# Deploy Ironbark packages.
+curl -X POST http://localhost:8080/ironbark/api/v1/init/packages
+
+# Set up ArgoCD repository secrets.
+curl -X POST http://localhost:8080/ironbark/api/v1/init/argocd-repo-secrets
+
+# Create and push the App of Apps repository.
+curl -X POST http://localhost:8080/ironbark/api/v1/init/argocd-app-of-apps-repo
+
+# Deploy the ArgoCD Application.
+curl -X POST http://localhost:8080/ironbark/api/v1/init/argocd-app
+----
+
+=== Artifact Downloads
+
+Download embedded artifacts from the container:
+
+[source,bash]
+----
+# List available artifacts.
+curl http://localhost:8080/ironbark/api/v1/artifact
+
+# Download RKE2 artifacts (only in ironbark-rke2 variant).
+curl -o rke2.tar.gz http://localhost:8080/ironbark/api/v1/artifact/rke2
+
+# Download zarf-init package.
+curl -O http://localhost:8080/ironbark/api/v1/artifact/zarf-init
+----
+
+Available artifacts:
+
+[horizontal]
+rke2:: RKE2 installation artifacts (only in `ironbark-rke2` container variant).
+zarf-init:: Zarf init package for bootstrapping K3s clusters.
 
 == Adding New Applications
 
-To add a new application to your Ironbark deployment:
+To add applications to your Ironbark deployment, you need to mirror the application's Zarf package and configure it in the ArgoCD App of Apps repository.
 
-. Ensure the Helm chart is mirrored to the Zarf OCI registry (via a Zarf package).
-+
-Any chart declared under `components[].charts` in a mirror package is pushed to the in-cluster OCI registry automatically when `ironbark init packages` runs.
+=== Mirror the Application Package
+
+Mirror your application's Zarf package to the cluster's internal OCI registry.
+
+[source,bash]
+----
+# Upload single package
+curl -X POST http://localhost:8080/ironbark/api/v1/package \
+  --data-binary @my-app.tar.zst \
+  -H "Content-Disposition: attachment; filename=my-app.tar.zst"
+
+# Upload multiple packages from archive
+curl -X POST http://localhost:8080/ironbark/api/v1/package/bulk \
+  --data-binary @my-packages.tar.gz \
+  -H "Content-Disposition: attachment; filename=my-packages.tar.gz"
+----
+
+This mirrors the package's container images and Helm charts to the cluster's internal registry without deploying them.
+
+==== Understanding landing location
+
+Any chart declared under `components[].charts` in the package is pushed to the in-cluster OCI registry.
 The chart lands at a predictable path that preserves upstream provenance:
+
+===== URL-sourced charts (`oci://` or `https://`)
+
+Lands at::
 +
-URL-sourced charts (`oci://` or `https://`):: `oci://<zarf-registry>/ironbark/charts/<upstream-host-and-path>/<chart-name>:<chart-version>`.
+----
+oci://<zarf-registry>/ironbark/charts/<upstream-host-and-path>/<chart-name>:<chart-version>
+----
+
+E.g.::
 +
-E.g.
-+
-* A chart declared as:
+A chart declared as:::
 +
 ----
 url: oci://ghcr.io/cowboysysop/charts/whoami (version `6.0.0`)
 ----
-* Lands at:
+Lands at:::
 +
 ----
 oci://<zarf-registry>/ironbark/charts/ghcr.io/cowboysysop/charts/whoami:6.0.0
 ----
-Local charts (`localPath`, `gitPath`):: `oci://<zarf-registry>/ironbark/charts/<zarf-package-name>/<chart-name>:<chart-version>`.
+
+===== Local charts (`localPath`, `gitPath`)
+
+Lands at::
 +
+----
+oci://<zarf-registry>/ironbark/charts/<zarf-package-name>/<chart-name>:<chart-version>
+----
+
 The Zarf package name is used as the namespace because no upstream URL is available; this prevents collisions when two packages ship a chart with the same name.
-+
+
 All four Zarf chart source types are supported (`localPath`, `gitPath`, `url: https://`, `url: oci://`).
 Use the predictable path to reference the mirrored chart from your ArgoCD `Application` (or any other in-cluster consumer).
-+
+
 [NOTE]
 .Umbrella (chart-of-charts) support
 --
@@ -928,187 +338,962 @@ Only the umbrella chart itself is pushed to the in-cluster registry; sub-charts 
 Caveat: container images referenced from sub-chart templates or hooks are not always auto-detected by Zarf's image discovery pass.
 If a sub-chart fails to deploy because an image was not mirrored, add the missing image to the parent component's `images:` list in `zarf.yaml`.
 --
-+
+
 [NOTE]
 --
 This works around an upstream Zarf limitation where `zarf package mirror-resources` only mirrors images and Git repos, never Helm charts.
-The chart-mirror step is implemented in Ironbark itself; see `src/internal/zarf/charts.go`.
+The chart-mirror step is implemented in Ironbark itself; see `internal/zarf/charts.go`.
 --
 
-. Edit the App of Apps configuration:
-+
+=== Clone the App of Apps repository
+
 [source,bash]
 ----
-cd "${IRONBARK_HOST_DATA_DIR}/repos/ironbark-argocd-app-of-apps"
+git clone http://localhost:3000/zarf-git-user/ironbark-argocd-app-of-apps.git
+cd ironbark-argocd-app-of-apps
 ----
 
-. Add the application to `chart/values.yaml`:
-+
+=== Add the application in App of Apps Repository
+
+Update `chart/values.yaml` to include the new application.
+
 The `chart.name` must be the chart path mirrored by Ironbark, without the `oci://<zarf-registry>/` prefix (ArgoCD prepends the registry host from the repo secret).
-+
-For example, the canary chart at:
+
+For example, the canary chart at::
 +
 ----
 oci://<zarf-registry>/ironbark/charts/ghcr.io/cowboysysop/charts/whoami:6.0.0
 ----
 +
-Is referenced as:
+Is referenced as::
 +
+.chart/values.yaml
 [source,yaml]
 ----
-applications:
-  - name: whoami
-    chart:
-      name: ironbark/charts/ghcr.io/cowboysysop/charts/whoami
-      targetRevision: 6.0.0
-    values:
-      path: values/whoami/values.yaml
-      targetRevision: HEAD
-      # Optional: Set Helm values from file contents (equivalent to `helm --set-file`).
-      fileParameters:
-        # Equivalent to `helm --set-file config.json=values/whoami/config.json`.
-        - name: config.json
-          path: values/whoami/config.json
-        # Equivalent to `helm --set-file tls.cert=values/whoami/cert.pem`.
-        - name: tls.cert
-          path: values/whoami/cert.pem
+  applications:
+    ...
+  
++   - name: whoami
++     chart:
++       name: ironbark/charts/ghcr.io/cowboysysop/charts/whoami
++       targetRevision: 6.0.0
++     values:
++       path: apps/whoami/values.yaml
++       targetRevision: HEAD
++ 
++       # Optional: Set Helm values from file contents (equivalent to `helm --set-file`).
++       #fileParameters:
++       #  # Equivalent to `helm --set-file config.json=apps/whoami/config.json`.
++       #  - name: config.json
++       #    path: apps/whoami/config.json
++       #  # Equivalent to `helm --set-file tls.cert=apps/whoami/cert.pem`.
++       #  - name: tls.cert
++       #    path: apps/whoami/cert.pem
 ----
 
-. Create values file at `values/whoami/values.yaml`:
-+
+=== Create values file in App of Apps Repository
+
+.apps/whoami/values.yaml
 [source,yaml]
 ----
 # Your Helm values here.
 replicaCount: 2
 ----
 
-. Commit and push changes:
-+
+=== Commit and push changes
+
 [source,bash]
 ----
 git add .
 git commit -m "Add whoami"
-ironbark argo push
+git push origin main
 ----
 
-. ArgoCD will automatically deploy the application.
+=== ArgoCD deployment
 
-== Development
-
-=== Project Structure
-
-[source]
-----
-ironbark/
-├── src/
-│   ├── cmd/                   # CLI commands
-│   │   ├── root.go            # Root command and flags
-│   │   ├── init.go            # Initialisation commands
-│   │   └── argo.go            # ArgoCD repository commands
-│   ├── internal/
-│   │   ├── constants/         # Application constants
-│   │   ├── git/               # Git operations (Zarf Gitea integration)
-│   │   └── zarf/              # Zarf cluster and package operations
-│   └── resources/
-│       └── resources/         # Embedded resources
-│           ├── bootstrap-argocd-app-of-apps.yaml
-│           └── repos/
-│               └── ironbark-argocd-app-of-apps/  # App of Apps template
-├── resources/
-│   └── packages/              # Zarf package definitions
-│       ├── deploy/
-│       │   └── bsl-ironbark/  # Core Ironbark package
-│       └── mirror/
-│           └── ironbark-canary-app/  # Example application package
-├── Dockerfile                 # Multi-stage build with Zarf packages
-└── Makefile                   # Build automation
-----
-
-=== Setup
-
-[source,bash]
-----
-# Clone the repository.
-git clone https://github.com/brightsparklabs/ironbark.git
-cd ironbark
-
-# Build zarf packages and extract to development location.
-make oci-image
-id=$(podman create docker.io/brightsparklabs/ironbark:latest)
-mkdir -p /tmp/ironbark/
-podman cp $id:/app/resources/packages /tmp/ironbark/
-podman rm ${id}
-
-# See all tasks.
-make
-----
-
-=== Running Locally
-
-[source,bash]
-----
-# Run from source.
-cd src
-go run . --help
-----
+ArgoCD will automatically deploy the application.
 
 == Troubleshooting
 
-=== ArgoCD Applications Not Syncing
+=== Container Won't Start
+
+*Problem:* Container exits immediately or won't start.
+
+*Solution:* Check container logs:
 
 [source,bash]
 ----
-# Check ArgoCD application status.
+podman logs ironbark
+----
+
+Common issues:
+
+* Port 8080 or 3000 already in use - change port mapping.
+* Permission issues - ensure podman has necessary privileges.
+
+=== Init Endpoint Fails
+
+*Problem:* `POST /init` returns an error.
+
+*Solution:* Check prerequisites:
+
+[source,bash]
+----
+# Verify kubeconfig is uploaded and accessible.
+curl http://localhost:8080/ironbark/api/v1/k8s/kubeconfig
+
+# Check container logs for detailed error messages.
+podman logs ironbark
+----
+
+Common causes:
+
+* No kubeconfig uploaded or mounted.
+* Kubeconfig points to localhost but container not using `--network host`.
+* Cluster is not accessible from container.
+
+=== Git Clone Fails
+
+*Problem:* Cannot clone repository through Git proxy.
+
+*Solution:* Ensure Zarf is initialised:
+
+[source,bash]
+----
+# Check if git-server is running.
+kubectl get pods -n zarf
+
+# Verify init was successful.
+curl -X POST http://localhost:8080/ironbark/api/v1/init/zarf
+----
+
+=== Applications Not Deploying
+
+*Problem:* ArgoCD not syncing applications.
+
+*Solution:* Check ArgoCD status:
+
+[source,bash]
+----
+# Check ArgoCD pods.
+kubectl get pods -n bsl-ironbark-argocd
+
+# Check Application status.
 kubectl get applications -n bsl-ironbark-argocd
-
-# View ArgoCD logs.
-kubectl logs -n bsl-ironbark-argocd -l app.kubernetes.io/name=argocd-server
-
-# Check repo server logs for Git/OCI issues.
-kubectl logs -n bsl-ironbark-argocd -l app.kubernetes.io/name=argocd-repo-server
 ----
 
-=== Cannot Push to Git Repository
+== Development
+
+=== Architecture
+
+Ironbark follows a layered architecture:
+
+*Container Layer:* 
+
+* Runs as HTTP API server by default (port 8080).
+* Git HTTP proxy for repository access (port 3000).
+* Embedded artifacts (zarf-init, RKE2 binaries).
+
+*API Layer:*
+
+* REST endpoints for all operations.
+* Smart initialisation with idempotent operations.
+* Kubeconfig management (upload, retrieve, delete).
+* Artifact downloads for air-gapped deployment.
+
+*Integration Layer:*
+
+* Zarf integration for K3s bootstrapping and package management.
+* Gitea for internal Git repository hosting.
+* ArgoCD for GitOps-based application deployment.
+
+*Storage Layer:*
+
+* Zarf OCI registry for container images.
+* Gitea for Git repositories.
+* Internal state managed by Zarf cluster CRDs.
+
+=== Building
+
+Build the Ironbark binary:
 
 [source,bash]
 ----
-# Verify Git tunnel is working.
-zarf connect git --local-port 5002
-
-# Check credentials.
-zarf tools get-creds git
-
-# Verify the repository exists in Gitea.
-# Access Gitea UI at http://localhost:5002.
+make build
 ----
 
-=== OCI Registry Connection Issues
-
-The internal TLS proxy provides HTTPS access to the Zarf OCI registry:
+Build container images:
 
 [source,bash]
 ----
-# Check TLS proxy status.
-kubectl get pods -n bsl-ironbark-internal-tls-proxy
+make oci-image
+----
 
-# View proxy logs.
-kubectl logs -n bsl-ironbark-internal-tls-proxy -l app=internal-tls-proxy
+This creates two variants:
+
+* `brightsparklabs/ironbark:latest` - K3s variant with zarf-init
+* `brightsparklabs/ironbark-rke2:latest` - RKE2 variant with RKE2 artifacts
+
+=== Testing
+
+Run tests:
+
+[source,bash]
+----
+make test
+----
+
+Format code:
+
+[source,bash]
+----
+make format
 ----
 
 == Contributing
 
-Contributions are welcome! Please ensure:
+Contributions are welcome!
+Please ensure all code follows the brightSPARK Labs coding standards.
 
-. Code is formatted with `gofmt`.
-. All tests pass (`make test`).
-. Commit messages are clear and descriptive.
+. Format code with `make format`.
+. Run tests with `make test`.
+. Use Australian English spelling throughout.
+. Follow the Go style guide.
 
 == License
 
-Refer to the link:LICENSE[LICENSE] file for details.
+Refer to `LICENSE` file in the repository root.
 
 == Related Projects
 
-* https://zarf.dev/[Zarf] - DevSecOps for Air Gap.
-* https://argo-cd.readthedocs.io/[ArgoCD] - Declarative GitOps CD for Kubernetes.
-* https://external-secrets.io/[External Secrets Operator] - Kubernetes External Secrets integration.
+* https://zarf.dev/[Zarf] - Declarative package manager for air-gapped Kubernetes
+* https://argo-cd.readthedocs.io/[ArgoCD] - Declarative GitOps for Kubernetes
+* https://docs.rke2.io/[RKE2] - Security-focused Kubernetes distribution
+
+[appendix]
+== Air-gapped Kubernetes Installation
+
+This section covers installing Kubernetes in an air-gapped environment using artifacts downloaded from Ironbark.
+
+=== Using RKE2 (Recommended)
+
+RKE2 is Rancher's security-focused Kubernetes distribution, ideal for air-gapped and compliance-driven environments.
+
+==== RKE2 Image Variants
+
+Ironbark provides two RKE2 image variants with different CSI storage drivers:
+
+Variant 1: brightsparklabs/ironbark-rke2 (local-path)::
+Description:::
+Uses Rancher local-path-provisioner for single-node or simple multi-node clusters.
+Storage is node-local (no replication).
+Suitable for development, testing, and small deployments.
++
+--
+[horizontal]
+Provisioner:: `rancher.io/local-path`
+StorageClass:: `local-path` (default)
+Reclaim Policy:: `Retain` (volumes persist after PVC deletion)
+Volume Binding Mode:: `Immediate`
+Storage Path:: `/opt/local-path-provisioner` (on each node)
+--
+When to Use:::
+* Running single-node clusters.
+* Storage persistence is needed but replication is not required.
+* Simple development/test environments.
+
+Variant 2: brightsparklabs/ironbark-rke2-ceph (Ceph)::
+Description:::
+Uses Rook-Ceph for production multi-node clusters.
+Provides distributed block storage with 3-replica configuration.
+Requires at least 3 nodes with raw block devices for production use.
+Suitable for production deployments requiring HA storage.
++
+--
+[horizontal]
+Provisioner:: `rook-ceph.rbd.csi.ceph.com`
+StorageClass:: `rook-ceph-block` (default)
+Reclaim Policy:: `Retain`
+Volume Binding Mode:: `Immediate`
+Replication:: 3 replicas (production-grade HA)
+--
+When to Use:::
+* Running multi-node production clusters (3+ nodes).
+* High-availability storage is required.
+* Raw block devices are available on cluster nodes.
+* Storage replication and fault tolerance are needed.
+Requirements:::
+Hardware::::
+* Minimum 3 worker nodes for production 3-replica configuration.
+* Raw block devices (unformatted, no partitions) on each node.
+* Recommended: 10GB+ per OSD device.
+* 10GB+ free space at `/var/lib/rook` for monitor data (or mount dedicated disk).
+SELinux Compatibility::::
+* The Ceph operator manifest includes `ROOK_HOSTPATH_REQUIRES_PRIVILEGED=true`.
+* The namespace is labeled with `pod-security.kubernetes.io/enforce=privileged`.
+* Ceph daemon pods (mon/osd/mgr) run with privileged security context.
+* This configuration works with SELinux enforcing mode - no SELinux changes needed.
+Network::::
+* Low-latency network between nodes (Ceph is sensitive to latency).
+* Sufficient bandwidth for replication traffic.
+Configuration::::
+The Ceph cluster auto-discovers and uses all available raw devices.
+Customise via CephCluster CR in deployed manifest if needed.
+
+==== Configure firewall for pod network access
+
+The firewall must be configured to allow pods to communicate with the host.
+Without this configuration, pods cannot reach the Kubernetes API server, causing CoreDNS and other system components to fail.
+
+===== For firewalld (Rocky Linux, RHEL, CentOS):
+
+[source,bash]
+----
+# Add pod network to trusted zone.
+sudo firewall-cmd --zone=trusted --add-source=10.42.0.0/16 --permanent
+sudo firewall-cmd --zone=trusted --add-source=10.43.0.0/16 --permanent
+
+# Reload firewall to apply changes.
+sudo firewall-cmd --reload
+
+# Verify configuration.
+sudo firewall-cmd --list-all --zone=trusted
+----
+
+===== For ufw (Ubuntu, Debian):
+
+[source,bash]
+----
+# Allow traffic from pod network.
+sudo ufw allow from 10.42.0.0/16
+
+# Verify configuration.
+sudo ufw status
+----
+
+NOTE: The pod network CIDR `10.42.0.0/16` and service network CIDR `10.43.0.0/16` are RKE2's default.
+If you intend to customise the CIDRs in your RKE2 configuration, use those value instead.
+
+==== Extract RKE2 artifacts
+
+. Select the appropriate Ironbark RKE2 image:
+For local-path variant (default):::
++
+[source,bash]
+----
+IMAGE=docker.io/brightsparklabs/ironbark-rke2:latest
+----
+For Ceph variant:::
++
+[source,bash]
+----
+IMAGE=docker.io/brightsparklabs/ironbark-rke2-ceph:latest
+----
+. Start the Ironbark RKE2 container:
++
+[source,bash]
+----
+podman run -d --rm \
+  --name ironbark \
+  --network host \
+  ${IMAGE}
+----
+
+. Download and extract RKE2 artifacts:
++
+[source,bash]
+----
+mkdir -p ~/rke2-setup
+cd ~/rke2-setup
+curl -o rke2.tar.gz http://localhost:8080/ironbark/api/v1/artifact/rke2
+tar -xzf rke2.tar.gz
+cd rke2/
+----
+
+. Copy container image tarballs to RKE2:
++
+[source,bash]
+----
+sudo mkdir -p /var/lib/rancher/rke2/agent/images
+sudo cp rke2-images-*.tar.zst /var/lib/rancher/rke2/agent/images/
+
+# Improve startup time by only importing tarballs that have changes since they were last imported.
+sudo touch /var/lib/rancher/rke2/agent/images/.cache.json
+----
++
+IMPORTANT: Both `rke2-images-cilium` and `rke2-images-core` tarballs are required for air-gapped deployment.
+
+. Configure RKE2 to use Cilium CNI:
++
+The Ironbark RKE2 variant includes a Cilium configuration that enables kube-proxy replacement and configures Cilium to use localhost for Kubernetes API access (avoiding firewall issues).
++
+[source,bash]
+----
+sudo mkdir -p /etc/rancher/rke2
+sudo cp config.yaml.template /etc/rancher/rke2/config.yaml
+
+# Copy Cilium config to RKE2 manifests directory.
+sudo mkdir -p /var/lib/rancher/rke2/server/manifests
+sudo cp rke2-cilium-config.yaml /var/lib/rancher/rke2/server/manifests/
+----
+
+==== Configure RKE2
+
+IMPORTANT: Any configuration changes for RKE2 must be done now, *before* starting RKE2.
+
+Make any desired changes to the configuration files:
+
+[horizontal]
+RKE2:: `/etc/rancher/rke2/config.yaml`
+CNI:: `/var/lib/rancher/rke2/server/manifests/rke2-cilium-config.yaml`
+
+NOTE: CSI driver installation is covered in a separate section after the cluster is running.
+
+==== Install RKE2
+
+. Install RKE2 from local artifacts:
++
+[source,bash]
+----
+sudo INSTALL_RKE2_TYPE=server \
+  INSTALL_RKE2_ARTIFACT_PATH=$(pwd) \
+  sh install.sh
+----
+
+. Start RKE2:
++
+[source,bash]
+----
+sudo systemctl enable rke2-server.service
+sudo systemctl start rke2-server.service
+----
+
+. Set up kubectl access:
++
+[source,bash]
+----
+mkdir -p ~/.kube
+sudo cp /etc/rancher/rke2/rke2.yaml ~/.kube/config
+sudo chown $(id -u):$(id -g) ~/.kube/config
+export PATH=$PATH:/var/lib/rancher/rke2/bin
+----
+
+. Cluster initialisation takes 5-10 minutes.
++
+Verify cluster is operational (all system pods Running):
++
+[source,bash]
+----
+kubectl get nodes
+kubectl get pods -A
+----
+
+==== Adding Additional Nodes (For Multi-Node Clusters)
+
+IMPORTANT: For Rook-Ceph CSI, you MUST add additional nodes BEFORE deploying the CSI driver.
+The default CephBlockPool requires 3 replicas across 3 different hosts.
+
+===== Get Cluster Join Token
+
+On the first server node, retrieve the token that additional nodes will use to join:
+
+[source,bash]
+----
+# Get the join token.
+sudo cat /var/lib/rancher/rke2/server/node-token
+----
+
+Save this token - you'll need it on each additional node.
+
+===== Add Additional Server Nodes (High Availability)
+
+To add more control-plane nodes for HA (highly available cluster), repeat these steps on each additional server node.
+
+. On the first server, copy artifacts to the new server node:
++
+[source,bash]
+----
+# Copy RKE2 installation artifacts.
+scp install.sh rke2-images-*.tar.zst rke2.linux-amd64.tar.gz sha256sum-amd64.txt \
+  <NEW_SERVER_USER>@<NEW_SERVER_IP>:/tmp/
+
+# Copy Cilium configuration.
+scp rke2-cilium-config.yaml <NEW_SERVER_USER>@<NEW_SERVER_IP>:/tmp/
+----
+
+. On the new server node, extract and copy artifacts:
++
+[source,bash]
+----
+cd /tmp
+
+# Copy container image tarballs.
+sudo mkdir -p /var/lib/rancher/rke2/agent/images
+sudo cp rke2-images-*.tar.zst /var/lib/rancher/rke2/agent/images/
+sudo touch /var/lib/rancher/rke2/agent/images/.cache.json
+----
+
+. Configure RKE2 to join the existing cluster:
++
+[source,bash]
+----
+# Create RKE2 config to join as a server.
+# Replace <FIRST_SERVER_IP>, <TOKEN>, and <THIS_SERVER_IP> with actual values.
+sudo mkdir -p /etc/rancher/rke2
+sudo bash -c 'cat > /etc/rancher/rke2/config.yaml <<EOF
+server: https://<FIRST_SERVER_IP>:9345
+token: <TOKEN_FROM_FIRST_SERVER>
+tls-san:
+  - <THIS_SERVER_IP>
+cni: cilium
+EOF'
+
+# Copy Cilium config.
+sudo mkdir -p /var/lib/rancher/rke2/server/manifests
+sudo cp /tmp/rke2-cilium-config.yaml /var/lib/rancher/rke2/server/manifests/
+----
+
+. Install and start RKE2 server:
++
+[source,bash]
+----
+sudo INSTALL_RKE2_TYPE=server \
+  INSTALL_RKE2_ARTIFACT_PATH=/tmp \
+  sh /tmp/install.sh
+
+sudo systemctl enable rke2-server.service
+sudo systemctl start rke2-server.service
+----
+
+. Verify the new server joined (run on first server):
++
+[source,bash]
+----
+kubectl get nodes
+----
+
+===== Add Worker Nodes (Agent-Only)
+
+To add worker-only nodes (agents that run workloads but not control-plane components), repeat these steps on each worker node.
+
+. On the first server, copy artifacts to the worker node:
++
+[source,bash]
+----
+# Copy RKE2 installation artifacts.
+scp install.sh rke2-images-*.tar.zst rke2.linux-amd64.tar.gz sha256sum-amd64.txt \
+  <WORKER_USER>@<WORKER_IP>:/tmp/
+----
+
+. On the worker node, extract and copy artifacts:
++
+[source,bash]
+----
+cd /tmp
+
+# Copy container image tarballs.
+sudo mkdir -p /var/lib/rancher/rke2/agent/images
+sudo cp rke2-images-*.tar.zst /var/lib/rancher/rke2/agent/images/
+sudo touch /var/lib/rancher/rke2/agent/images/.cache.json
+----
+
+. Configure RKE2 to join as an agent:
++
+[source,bash]
+----
+# Create RKE2 config to join as an agent.
+# Replace <FIRST_SERVER_IP> and <TOKEN> with actual values.
+sudo mkdir -p /etc/rancher/rke2
+sudo bash -c 'cat > /etc/rancher/rke2/config.yaml <<EOF
+server: https://<FIRST_SERVER_IP>:9345
+token: <TOKEN_FROM_FIRST_SERVER>
+EOF'
+----
++
+NOTE: Agent nodes do NOT need `cni: cilium` in their config (CNI is configured by server nodes).
+Agent nodes also do NOT need the `rke2-cilium-config.yaml` manifest.
+
+. Install and start RKE2 agent:
++
+[source,bash]
+----
+sudo INSTALL_RKE2_TYPE=agent \
+  INSTALL_RKE2_ARTIFACT_PATH=/tmp \
+  sh /tmp/install.sh
+
+sudo systemctl enable rke2-agent.service
+sudo systemctl start rke2-agent.service
+----
+
+. Verify the new agent joined (run on first server):
++
+[source,bash]
+----
+kubectl get nodes
+----
+
+==== Install CSI Driver (After Cluster is Running)
+
+IMPORTANT: Only install the CSI driver AFTER the RKE2 cluster is fully operational (all system pods Running).
+
+===== Option 1: Use local-path variant
+
+[source,bash]
+----
+sudo cp csi-local-path-provisioner.yaml /var/lib/rancher/rke2/server/manifests/
+sudo systemctl restart rke2-server
+----
+
+===== Option 2: Use Ceph variant
+
+[IMPORTANT]
+--
+*Rook-Ceph Requirements*
+
+For Rook-Ceph to work properly:
+
+* **Minimum 3 nodes** (can be server or agent nodes).
+* Each node needs a **raw block device** (unformatted, no partitions) for Ceph OSDs.
+
+*Single-Node Testing Workaround*
+
+If you only have 1 node for testing, you can modify the CephBlockPool AFTER deployment:
+
+[source,bash]
+----
+# After CephCluster is deployed, patch the pool to use 1 replica.
+kubectl patch cephblockpool -n rook-ceph replicapool --type merge \
+  -p '{"spec":{"replicated":{"size":1,"requireSafeReplicaSize":false}}}'
+
+# Verify pool is now Ready.
+kubectl get cephblockpool -n rook-ceph
+----
+
+WARNING: Single-replica configuration provides NO data redundancy.
+A single OSD or node failure will result in data loss.
+Only use for testing/development.
+--
+
+[source,bash]
+----
+# Copy HelmChart CRD manifest (contains base64-encoded chart).
+sudo cp csi-rook-ceph-chart.yaml /var/lib/rancher/rke2/server/manifests/
+sudo systemctl restart rke2-server
+
+# Wait for Rook operator to deploy and CRDs to be installed (takes ~2 minutes).
+kubectl wait --for=condition=ready pod -l app=rook-ceph-operator -n rook-ceph --timeout=300s
+
+# Verify CRDs are installed.
+kubectl get crd cephclusters.ceph.rook.io
+
+# Now copy CephCluster manifest.
+sudo cp csi-rook-ceph-cluster.yaml /var/lib/rancher/rke2/server/manifests/
+sudo systemctl restart rke2-server
+----
+
+Ceph cluster initialisation takes 5-10 minutes.
+Verify with:
+
+[source,bash]
+----
+kubectl -n rook-ceph get cephcluster
+
+# If ceph-tools has been deployed.
+kubectl -n rook-ceph exec -it deploy/rook-ceph-tools -- ceph status
+----
+
+===== Verify CSI driver
+
+Verify CSI driver is deployed and working:
+
+[source,bash]
+----
+# Verify default StorageClass is created.
+kubectl get storageclass
+
+# Optional: Test PVC creation.
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: test-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+EOF
+
+# Verify PVC is bound.
+kubectl get pvc test-pvc
+
+# Clean up test PVC.
+kubectl delete pvc test-pvc
+----
+
+==== Deploy Ironbark
+
+. Upload kubeconfig to Ironbark:
++
+[source,bash]
+----
+curl -X POST http://localhost:8080/ironbark/api/v1/k8s/kubeconfig \
+  --data-binary @/etc/rancher/rke2/rke2.yaml
+----
+
+. Initialise Ironbark components:
++
+[source,bash]
+----
+curl -X POST http://localhost:8080/ironbark/api/v1/init
+----
+
+=== Using K3s (Alternative)
+
+For K3s deployment, use the default Ironbark image with zarf-init:
+
+. Start the Ironbark container:
++
+[source,bash]
+----
+podman run -d --rm \
+  --name ironbark \
+  --network host \
+  docker.io/brightsparklabs/ironbark:latest
+----
+
+. Download zarf-init package:
++
+[source,bash]
+----
+curl -O http://localhost:8080/ironbark/api/v1/artifact/zarf-init
+----
+
+. Run zarf init:
++
+[source,bash]
+----
+zarf init --components=git-server --confirm zarf-init-amd64-*.tar.zst
+----
+
+. Continue with <<Deploy Ironbark>> from the RKE2 workflow above.
+
+[appendix]
+== Usage via CLI
+
+For advanced use cases or direct host execution, Ironbark provides CLI commands through a launcher script workflow.
+
+=== Prerequisites
+
+. The environment has a working Kubernetes cluster (EKS, RKE2, K3s, etc.).
+. `kubectl` is configured and connected to the cluster.
+. Zarf has been initialised on the cluster (`zarf init`).
+
+If any of the above are not met, refer to <<Air-gapped Kubernetes Installation>>.
+
+=== Shell Environment
+
+Set these environment variables before installation:
+
+[source,bash]
+----
+# Base directory for Ironbark installations.
+export IRONBARK_INSTALL_BASE_DIR="/opt/brightsparklabs/ironbark"
+
+# Release environment (e.g., production, staging).
+export IRONBARK_RELEASE_ENVIRONMENT="production"
+
+# Per-environment install directory (derived from above).
+export IRONBARK_INSTALL_DIR="${IRONBARK_INSTALL_BASE_DIR}/${IRONBARK_RELEASE_ENVIRONMENT}"
+----
+
+=== Easy Install (Recommended)
+
+Use `generate installer` to create a self-contained bash installer:
+
+[source,bash]
+----
+# Set the Ironbark image version.
+export IRONBARK_SCRIPT_IMAGE=docker.io/brightsparklabs/ironbark:latest
+
+# Generate and run the installer.
+podman run --rm ${IRONBARK_SCRIPT_IMAGE} generate installer \
+    --install-base-dir "${IRONBARK_INSTALL_BASE_DIR}" \
+    --release-environment "${IRONBARK_RELEASE_ENVIRONMENT}" \
+  | sudo bash
+
+# Add the launcher to your PATH.
+export PATH="${IRONBARK_INSTALL_DIR}/bin:${PATH}"
+----
+
+The installer:
+
+. Creates the install directory tree under `/opt/brightsparklabs/ironbark/<environment>/`.
+. Generates a versioned launcher script in `bin/`.
+. Creates a generic `bin/ironbark` symlink.
+. Sets proper ownership and permissions.
+
+Available options for `ironbark generate installer`:
+
+[horizontal]
+`--install-base-dir`:: Base directory for installations. Default: `/opt/brightsparklabs/ironbark`.
+`--release-environment`:: Target environment. Default: `production`.
+
+All flags from `generate launcher` are also supported.
+
+=== Manual Install (Alternative)
+
+Generate a launcher script manually:
+
+[source,bash]
+----
+# Generate the launcher script.
+podman run --rm ${IRONBARK_SCRIPT_IMAGE} generate launcher \
+  > "${IRONBARK_INSTALL_DIR}/bin/ironbark"
+
+chmod +x "${IRONBARK_INSTALL_DIR}/bin/ironbark"
+
+# Add to PATH.
+export PATH="${IRONBARK_INSTALL_DIR}/bin:${PATH}"
+----
+
+Available options for `ironbark generate launcher`:
+
+[horizontal]
+`--container-engine`, `-e`:: Container engine (`podman` or `docker`). Default: `podman`.
+`--image`, `-i`:: Ironbark container image reference. Default: `docker.io/brightsparklabs/ironbark:latest`.
+`--kubeconfig`, `-k`:: Path to kubeconfig file on host. Default: `~/.kube/config`.
+`--no-interactive`:: Disable interactive mode (pass `-i` to container engine).
+`--no-tty`:: Disable TTY allocation (pass `-t` to container engine).
+
+=== Initialisation Commands
+
+Initialise all components:
+
+[source,bash]
+----
+ironbark init all
+----
+
+Individual initialisation steps:
+
+[source,bash]
+----
+# Deploy and mirror Ironbark packages.
+ironbark init packages
+
+# Set up ArgoCD repository secrets.
+ironbark init argocd-repo-secrets
+
+# Create and push the App of Apps repository.
+ironbark init argocd-app-of-apps-repo
+
+# Deploy the ArgoCD Application.
+ironbark init argocd-app
+----
+
+=== Repository Commands
+
+[source,bash]
+----
+# List repositories.
+ironbark repo list
+
+# Clone the App of Apps repository.
+ironbark repo clone
+
+# Push local changes.
+ironbark repo push
+
+# Pull latest changes.
+ironbark repo pull
+----
+
+=== Starting the API Server
+
+Start the server with custom timeouts:
+
+[source,bash]
+----
+ironbark serve --api-timeout 60 --git-timeout 600
+----
+
+=== Configuration Environment Variables
+
+All `IRONBARK_*` environment variables are defined and documented in `internal/settings/settings.go`.
+The complete catalogue can be viewed at runtime using `ironbark debug settings`.
+
+==== Go-Consumed Variables
+
+These variables are read directly by the Ironbark binary:
+
+[horizontal]
+`IRONBARK_DATA_DIR`:: Directory used by Ironbark to store application data (cloned repos, etc.). Default: `/tmp/ironbark/data`.
+`IRONBARK_INTERNAL_PACKAGES_DIR`:: Directory containing the internal Zarf packages bundled with Ironbark. Default: `/tmp/ironbark/packages`.
+`IRONBARK_LOG_LEVEL`:: Minimum log level for the Ironbark binary (debug, info, warn, error). Default: `info`.
+
+==== Container Sentinel
+
+`IRONBARK_IN_CONTAINER`:: Baked into the container image so processes can detect they are running inside the container. Default: `false`.
+
+==== Launcher Sentinel
+
+`IRONBARK_LAUNCHER_INVOKED`:: Set to `true` by the generated launcher script so processes can detect Ironbark was invoked via the launcher. Default: `false`.
+
+==== Script Variables
+
+These variables are read by the generated launcher and zarf-bootstrap scripts:
+
+[horizontal]
+`IRONBARK_SCRIPT_CONTAINER_ENGINE`:: Container engine (`podman` or `docker`) used by scripts. Overrides the baked-in value.
+`IRONBARK_SCRIPT_IMAGE`:: Container image reference used by scripts. Overrides the baked-in value.
+`IRONBARK_SCRIPT_NO_INTERACTIVE`:: Set to any value to run the container without `--interactive`. Useful in CI.
+`IRONBARK_SCRIPT_NO_TTY`:: Set to any value to run the container without `--tty`. Useful when piping output or in CI.
+`IRONBARK_SCRIPT_VERBOSE`:: Set to any value to make scripts print verbose diagnostic output to stderr.
+`IRONBARK_SCRIPT_ZARF_SOURCE_PATH`:: Override for the in-container source path used by the zarf-bootstrap script.
+`IRONBARK_SCRIPT_ZARF_OUTPUT_DIR`:: Override for the host output directory used by the zarf-bootstrap script.
+
+==== Launcher-Forwarded Variables
+
+These variables are set by the launcher script to expose host context inside the container:
+
+[horizontal]
+`IRONBARK_HOST_DATA_DIR`:: Host directory bind-mounted into the container as `/mnt/data`.
+`IRONBARK_HOST_KUBECONFIG`:: Host kubeconfig file bind-mounted at `/mnt/conf/kubeconfig`.
+`IRONBARK_HOST_CONTAINER_ENGINE`:: Container engine the launcher used (e.g., `podman`).
+`IRONBARK_HOST_USER`:: Username of the host user that invoked the launcher.
+`IRONBARK_HOST_UID`:: Numeric UID of the host user.
+`IRONBARK_HOST_GID`:: Numeric GID of the host user.
+`IRONBARK_HOST_HOSTNAME`:: Hostname of the host machine.
+`IRONBARK_HOST_PWD`:: Working directory the launcher was invoked from.
+`IRONBARK_HOST_OS`:: Operating system of the host (output of `uname -s`).
+`IRONBARK_HOST_ARCH`:: CPU architecture of the host (output of `uname -m`).
+`IRONBARK_HOST_LAUNCHER_VERSION`:: Version of the Ironbark binary that generated the launcher script.
+`IRONBARK_HOST_LAUNCHER_COMMIT`:: Git commit of the Ironbark binary that generated the launcher.
+`IRONBARK_HOST_LAUNCHER_BUILD_TIME`:: Build timestamp of the Ironbark binary that generated the launcher.
+`IRONBARK_HOST_LAUNCHER_GENERATED_AT`:: Timestamp when the launcher script was generated.
+
+=== Diagnostic Commands
+
+Generate documentation:
+
+[source,bash]
+----
+ironbark docs
+----
+
+View version information:
+
+[source,bash]
+----
+ironbark version
+----
+
+View debug settings:
+
+[source,bash]
+----
+ironbark debug settings
+----
+

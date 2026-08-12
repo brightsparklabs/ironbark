@@ -1,0 +1,37 @@
+# Cilium HelmChartConfig for RKE2
+# This configures Cilium to replace kube-proxy for service load balancing.
+#
+# See: https://docs.rke2.io/networking/basic_network_options
+# See: https://docs.cilium.io/en/stable/network/kubernetes/kubeproxy-free/
+---
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: rke2-cilium
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    # Enable Cilium kube-proxy replacement.
+    # This allows Cilium to handle service load balancing via eBPF instead of iptables.
+    kubeProxyReplacement: true
+
+    # Direct Cilium to reach the API server via localhost instead of the Kubernetes service IP.
+    # RKE2 proxies Kubernetes API requests on worker nodes and control plane nodes via a local
+    # proxy listening on port 6443.
+    # Consequently, the Cilium agent must communicate with the local API endpoint rather than
+    # the cluster's service IP.
+    #
+    # Without this, Cilium can't start because it needs pod networking to reach the service IP,
+    # but pod networking can't work until Cilium starts (chicken-and-egg problem).
+    # By pointing to localhost:6443, Cilium can reach the API server on the host network
+    # during startup, allowing the CNI to initialize properly.
+    k8sServiceHost: localhost
+    k8sServicePort: "6443"
+
+    # Enable Hubble for network observability.
+    hubble:
+      enabled: true
+      relay:
+        enabled: true
+      ui:
+        enabled: true

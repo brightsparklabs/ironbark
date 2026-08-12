@@ -14,6 +14,7 @@ import (
 
 	zarfcluster "github.com/zarf-dev/zarf/src/pkg/cluster"
 	zarfstate "github.com/zarf-dev/zarf/src/pkg/state"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 var zarfCluster *zarfcluster.Cluster
@@ -78,12 +79,53 @@ func GetGitServerInfo(ctx context.Context) (*zarfstate.GitServerInfo, error) {
 	return &zarfState.GitServer, nil
 }
 
+// IsInitialized checks if Zarf is initialized in the cluster by looking for
+// the zarf namespace and the registry deployment.
+// Returns:
+//   - true, nil: Zarf is initialized
+//   - false, nil: Zarf is not initialized (but cluster is accessible)
+//   - false, error: Cannot determine status (cluster connection failed, etc.)
+func IsInitialized(ctx context.Context) (bool, error) {
+	cluster, err := GetCluster(ctx)
+	if err != nil {
+		return false, fmt.Errorf("cannot connect to cluster: %w", err)
+	}
+
+	// Check if zarf namespace exists and registry deployment is present.
+	// The registry deployment is created by zarf init and is fundamental to all operations.
+	k8s := cluster.Clientset
+	_, err = k8s.AppsV1().Deployments("zarf").Get(ctx, "zarf-docker-registry", metav1.GetOptions{})
+	if err != nil {
+		slog.Debug("Zarf not initialized: registry deployment not found", "error", err)
+		return false, nil
+	}
+
+	slog.Debug("Zarf is initialized (registry deployment found)")
+	return true, nil
+}
+
 func DeployPackages(dir string) error {
 	return runPackagesCommand(dir, []string{"deploy", "--confirm"})
 }
 
 func MirrorPackages(dir string) error {
 	return runPackagesCommand(dir, []string{"mirror-resources"})
+}
+
+// MirrorPackagesWithCharts mirrors both images (via zarf mirror-resources) and
+// Helm charts (via custom OCI push logic) from all packages in a directory.
+func MirrorPackagesWithCharts(ctx context.Context, dir string) error {
+	// Mirror images using Zarf's built-in mirror-resources command.
+	if err := MirrorPackages(dir); err != nil {
+		return fmt.Errorf("failed to mirror images: %w", err)
+	}
+
+	// Mirror Helm charts using custom OCI registry push logic.
+	if err := MirrorPackageCharts(ctx, dir); err != nil {
+		return fmt.Errorf("failed to mirror charts: %w", err)
+	}
+
+	return nil
 }
 
 func runPackagesCommand(dir string, actions []string) error {

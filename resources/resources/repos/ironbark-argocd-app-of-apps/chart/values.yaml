@@ -24,9 +24,9 @@ applications:
 
     values:
       # Path to the Helm values YAML file to use.
-      path: values/ironbark-canary-app/values-blue.yaml
+      path: apps/ironbark-canary-app/values-blue.yaml
       # Example alternative:
-      #path: values/ironbark-canary-app/values-green.yaml
+      #path: apps/ironbark-canary-app/values-green.yaml
 
       # Version of the repo to checkout.
       targetRevision: HEAD
@@ -37,12 +37,12 @@ applications:
       # File parameters (equivalent to helm --set-file).
       # Allows setting Helm values from file contents.
       #fileParameters:
-      #  # Equivalent to `helm --set-file config.json=values/ironbark-canary-app/config.json`.
+      #  # Equivalent to `helm --set-file config.json=apps/ironbark-canary-app/config.json`.
       #  - name: config.json
-      #    path: values/ironbark-canary-app/config.json
-      #  # Equivalent to `helm --set-file tls.cert=values/ironbark-canary-app/cert.pem`.
+      #    path: apps/ironbark-canary-app/config.json
+      #  # Equivalent to `helm --set-file tls.cert=apps/ironbark-canary-app/cert.pem`.
       #  - name: tls.cert
-      #    path: values/ironbark-canary-app/cert.pem
+      #    path: apps/ironbark-canary-app/cert.pem
 
 config:
   spec:

@@ -93,33 +93,67 @@ build/bin/ironbark: $(BUILD_INPUTS) README.adoc
 		&& go mod download \
 		&& CGO_ENABLED=0 GOOS=linux go build -ldflags "$(GO_LDFLAGS)" -o build/bin/ironbark .
 
+.PHONY: docs
+docs: docs-html docs-pdf ## Generate HTML and PDF documentation from README.
+
+.PHONY: docs-html
+docs-html: build/docs/README.html ## Generate HTML documentation from README.
+
+build/docs/README.html: README.adoc
+	@mkdir -p build/docs
+	asciidoctor -b html5 -o build/docs/README.html README.adoc
+
+.PHONY: docs-pdf
+docs-pdf: build/docs/README.pdf ## Generate PDF documentation from README.
+
+build/docs/README.pdf: README.adoc
+	@mkdir -p build/docs
+	asciidoctor-pdf -o build/docs/README.pdf README.adoc
+
 .PHONY: oci-image
-oci-image: oci-image-k3s oci-image-rke2 ## Build both K3s and RKE2 variant OCI images.
+oci-image: oci-image-k3s oci-image-rke2 oci-image-rke2-ceph ## Build K3s, RKE2, and RKE2 Ceph variant OCI images.
 
 .PHONY: oci-image-k3s
-oci-image-k3s: ## Build K3s variant OCI image.
-	docker build \
+oci-image-k3s: ## Build K3s variant OCI image (linux/amd64).
+	docker buildx build \
 		--target ironbark-k3s \
 		--build-arg APP_VERSION=$(APP_VERSION) \
 		--build-arg BUILD_DATE=$(BUILD_DATE) \
 		--build-arg BUILD_TIME_UTC=$(BUILD_TIME_UTC) \
 		--build-arg VCS_REF=$(VCS_REF) \
+		--platform linux/amd64 \
+		--load \
 		-t brightsparklabs/$(APP_NAME):$(APP_VERSION) \
 		-t brightsparklabs/$(APP_NAME):latest .
 
 .PHONY: oci-image-rke2
-oci-image-rke2: ## Build RKE2 variant OCI image.
-	docker build \
+oci-image-rke2: ## Build RKE2 variant OCI image (linux/amd64).
+	docker buildx build \
 		--target ironbark-rke2 \
 		--build-arg APP_VERSION=$(APP_VERSION) \
 		--build-arg BUILD_DATE=$(BUILD_DATE) \
 		--build-arg BUILD_TIME_UTC=$(BUILD_TIME_UTC) \
 		--build-arg VCS_REF=$(VCS_REF) \
+		--platform linux/amd64 \
+		--load \
 		-t brightsparklabs/$(APP_NAME)-rke2:$(APP_VERSION) \
 		-t brightsparklabs/$(APP_NAME)-rke2:latest .
 
+.PHONY: oci-image-rke2-ceph
+oci-image-rke2-ceph: ## Build RKE2 Ceph variant OCI image (linux/amd64).
+	docker buildx build \
+		--target ironbark-rke2-ceph \
+		--build-arg APP_VERSION=$(APP_VERSION) \
+		--build-arg BUILD_DATE=$(BUILD_DATE) \
+		--build-arg BUILD_TIME_UTC=$(BUILD_TIME_UTC) \
+		--build-arg VCS_REF=$(VCS_REF) \
+		--platform linux/amd64 \
+		--load \
+		-t brightsparklabs/$(APP_NAME)-rke2-ceph:$(APP_VERSION) \
+		-t brightsparklabs/$(APP_NAME)-rke2-ceph:latest .
+
 .PHONY: oci-image-save
-oci-image-save: oci-image-k3s-save oci-image-rke2-save ## Save both K3s and RKE2 variant OCI images.
+oci-image-save: oci-image-k3s-save oci-image-rke2-save oci-image-rke2-ceph-save ## Save K3s, RKE2, and RKE2 Ceph variant OCI images.
 
 .PHONY: oci-image-k3s-save
 oci-image-k3s-save: oci-image-k3s ## Save K3s variant OCI images.
@@ -135,84 +169,93 @@ oci-image-rke2-save: oci-image-rke2 ## Save RKE2 variant OCI images.
 		brightsparklabs/$(APP_NAME)-rke2:$(APP_VERSION) \
 		-o build/images/oci-brightsparklabs-$(APP_NAME)-rke2-$(APP_VERSION).tar
 
-# ------------------------------------------------------------------------------
-# Multi-arch OCI Image Targets (using buildx)
-# ------------------------------------------------------------------------------
-# These targets use Docker buildx to build multi-architecture images.
-# Buildx is required for publishing to container registries with multi-arch
-# support (linux/amd64 and linux/arm64).
-#
-# Why buildx instead of Podman:
-# - GitHub Actions runners use Docker by default
-# - Buildx provides native multi-arch build support
-# - Consistent with existing CI/CD patterns
-# - Podman is still preferred for local development (see devbox.json)
-#
-# Note on CI/CD vs Local Development:
-# - Local development uses devbox (provides Go, Podman, govulncheck, etc.)
-# - GitHub Actions uses standard setup-go action (no devbox dependency)
-# - Makefile targets work in both environments:
-#   * Local: devbox provides govulncheck
-#   * CI: 'go install govulncheck@latest' runs on-demand (fast, cached)
-# - This separation keeps CI simple while providing rich local dev environment
+.PHONY: oci-image-rke2-ceph-save
+oci-image-rke2-ceph-save: oci-image-rke2-ceph ## Save RKE2 Ceph variant OCI images.
+	mkdir -p build/images
+	docker save \
+		brightsparklabs/$(APP_NAME)-rke2-ceph:$(APP_VERSION) \
+		-o build/images/oci-brightsparklabs-$(APP_NAME)-rke2-ceph-$(APP_VERSION).tar
 
-.PHONY: oci-image-buildx
-oci-image-buildx: oci-image-k3s-buildx oci-image-rke2-buildx ## Build both K3s and RKE2 multi-arch OCI images.
-
-.PHONY: oci-image-k3s-buildx
-oci-image-k3s-buildx: ## Build K3s variant multi-arch OCI image (linux/amd64,linux/arm64).
-	docker buildx build \
-		--target ironbark-k3s \
-		--build-arg APP_VERSION=$(APP_VERSION) \
-		--build-arg BUILD_DATE=$(BUILD_DATE) \
-		--build-arg BUILD_TIME_UTC=$(BUILD_TIME_UTC) \
-		--build-arg VCS_REF=$(VCS_REF) \
-		--platform linux/amd64,linux/arm64 \
-		--load \
-		-t brightsparklabs/$(APP_NAME):$(APP_VERSION) \
-		-t brightsparklabs/$(APP_NAME):latest .
-
-.PHONY: oci-image-rke2-buildx
-oci-image-rke2-buildx: ## Build RKE2 variant multi-arch OCI image (linux/amd64,linux/arm64).
-	docker buildx build \
-		--target ironbark-rke2 \
-		--build-arg APP_VERSION=$(APP_VERSION) \
-		--build-arg BUILD_DATE=$(BUILD_DATE) \
-		--build-arg BUILD_TIME_UTC=$(BUILD_TIME_UTC) \
-		--build-arg VCS_REF=$(VCS_REF) \
-		--platform linux/amd64,linux/arm64 \
-		--load \
-		-t brightsparklabs/$(APP_NAME)-rke2:$(APP_VERSION) \
-		-t brightsparklabs/$(APP_NAME)-rke2:latest .
 
 .PHONY: oci-image-push
-oci-image-push: oci-image-k3s-push oci-image-rke2-push ## Build and push both K3s and RKE2 multi-arch images to DockerHub.
+oci-image-push: oci-image-k3s-push oci-image-rke2-push oci-image-rke2-ceph-push ## Build and push K3s, RKE2, and RKE2 Ceph images to DockerHub (linux/amd64).
 
 .PHONY: oci-image-k3s-push
-oci-image-k3s-push: ## Build and push K3s variant multi-arch OCI image to DockerHub.
+oci-image-k3s-push: ## Build and push K3s variant OCI image to DockerHub (linux/amd64).
 	docker buildx build \
 		--target ironbark-k3s \
 		--build-arg APP_VERSION=$(APP_VERSION) \
 		--build-arg BUILD_DATE=$(BUILD_DATE) \
 		--build-arg BUILD_TIME_UTC=$(BUILD_TIME_UTC) \
 		--build-arg VCS_REF=$(VCS_REF) \
-		--platform linux/amd64,linux/arm64 \
+		--platform linux/amd64 \
 		--push \
 		-t brightsparklabs/$(APP_NAME):$(APP_VERSION) \
 		-t brightsparklabs/$(APP_NAME):latest .
 
 .PHONY: oci-image-rke2-push
-oci-image-rke2-push: ## Build and push RKE2 variant multi-arch OCI image to DockerHub.
+oci-image-rke2-push: ## Build and push RKE2 variant OCI image to DockerHub (linux/amd64).
 	docker buildx build \
 		--target ironbark-rke2 \
 		--build-arg APP_VERSION=$(APP_VERSION) \
 		--build-arg BUILD_DATE=$(BUILD_DATE) \
 		--build-arg BUILD_TIME_UTC=$(BUILD_TIME_UTC) \
 		--build-arg VCS_REF=$(VCS_REF) \
-		--platform linux/amd64,linux/arm64 \
+		--platform linux/amd64 \
 		--push \
 		-t brightsparklabs/$(APP_NAME)-rke2:$(APP_VERSION) \
 		-t brightsparklabs/$(APP_NAME)-rke2:latest .
+
+.PHONY: oci-image-rke2-ceph-push
+oci-image-rke2-ceph-push: ## Build and push RKE2 Ceph variant OCI image to DockerHub (linux/amd64).
+	docker buildx build \
+		--target ironbark-rke2-ceph \
+		--build-arg APP_VERSION=$(APP_VERSION) \
+		--build-arg BUILD_DATE=$(BUILD_DATE) \
+		--build-arg BUILD_TIME_UTC=$(BUILD_TIME_UTC) \
+		--build-arg VCS_REF=$(VCS_REF) \
+		--platform linux/amd64 \
+		--push \
+		-t brightsparklabs/$(APP_NAME)-rke2-ceph:$(APP_VERSION) \
+		-t brightsparklabs/$(APP_NAME)-rke2-ceph:latest .
+
+.PHONY: dist
+dist: oci-image-save docs ## Create distribution with images and documentation.
+	@echo "$$(date -Isec) Creating distribution in build/dist/"
+	@rm -rf build/dist
+	@mkdir -p build/dist
+
+	@# Hardlink image tarballs to save space.
+	@for img in build/images/*.tar; do \
+		if [ -f "$$img" ]; then \
+			ln "$$img" "build/dist/$$(basename $$img)"; \
+		fi; \
+	done
+
+	@# Copy documentation.
+	@ln build/docs/README.html build/dist/README.html
+	@ln build/docs/README.pdf build/dist/README.pdf
+
+	@# Generate checksums.
+	@cd build/dist && for f in *; do \
+		echo "$$(date -Isec) Generating checksum for $$f ..."; \
+		sha256sum "$$f" > "$$f.sha256"; \
+	done
+
+	@echo ""
+	@echo "Total size:"
+	@du -sh build/dist/
+
+.PHONY: dist-info
+dist-info: ## Prints out details of the distribution.
+	@echo ""
+	@echo Ironbark release: $(APP_VERSION)
+	@echo ""
+	@echo Contents:
+	@ls -1 build/dist | sed 's/^/  - /'
+	@echo ""
+	@echo "SHA-256 Checksums:"
+	@cd build/dist && (cat *.sha256 | sed 's/^/  /')
 
 .PHONY: test-coverage
 test-coverage: ## Run unit tests with coverage reporting.

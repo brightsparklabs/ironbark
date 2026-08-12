@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ironbark</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .container {
+            background: white;
+            border-radius: 10px;
+            padding: 3rem;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            text-align: center;
+            max-width: 600px;
+        }
+        h1 {
+            color: #667eea;
+            margin: 0 0 1rem 0;
+            font-size: 2.5rem;
+        }
+        p {
+            color: #666;
+            line-height: 1.6;
+            margin: 1rem 0;
+        }
+        .links-section {
+            margin-top: 2rem;
+            padding-top: 2rem;
+            border-top: 1px solid #eee;
+        }
+        .links-section h2 {
+            font-size: 1.2rem;
+            color: #333;
+            margin-bottom: 1rem;
+        }
+        .links-section a {
+            display: inline-block;
+            margin: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: #667eea;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            transition: background 0.3s;
+        }
+        .links-section a:hover {
+            background: #764ba2;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Welcome to Ironbark</h1>
+        <p>
+            Ironbark is a Kubernetes management tool that implements the brightSPARK Labs 
+            opinionated deployment pattern using Zarf and ArgoCD for air-gapped and 
+            disconnected environments.
+        </p>
+        <p>
+            The API server is running and ready to serve requests.
+        </p>
+        <div class="links-section">
+            <h2>Links</h2>
+            <a href="https://github.com/brightsparklabs/ironbark" id="docs-link">View Documentation</a>
+            <a href="/ironbark/api/v1/health">Health Check</a>
+            <a href="/ironbark/api/v1/version">Version</a>
+        </div>
+    </div>
+    <script>
+        // Check if documentation is available.
+        // If yes, link to /ironbark/docs/, otherwise link to GitHub.
+        fetch('/ironbark/docs/', {method: 'HEAD'})
+            .then(response => {
+                if (response.ok) {
+                    document.getElementById('docs-link').href = '/ironbark/docs/';
+                }
+            })
+            .catch(() => {
+                // Documentation not available, link stays as GitHub (default).
+            });
+    </script>
+</body>
+</html>

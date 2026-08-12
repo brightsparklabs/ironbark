@@ -7,7 +7,8 @@
     "govulncheck@latest",
     "github-cli@latest",
     "goreleaser@latest",
-    "prek@latest"
+    "prek@latest",
+    "asciidoctor@latest"
   ],
   "shell": {
     "init_hook": [
