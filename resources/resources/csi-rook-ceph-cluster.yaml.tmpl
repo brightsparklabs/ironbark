@@ -22,25 +22,26 @@ spec:
   cephVersion:
     image: quay.io/ceph/ceph:v18.2.4
     allowUnsupported: false
-  
+
   # Data directory on host for Ceph storage.
   # This directory will be created automatically by privileged Ceph daemon pods.
   dataDirHostPath: /var/lib/rook
-  
+
   # Skip upgrade checks for initial deployment.
   skipUpgradeChecks: false
-  
+
   # Continue if upgrade checks fail (not recommended for production).
   continueUpgradeAfterChecksEvenIfNotHealthy: false
-  
+
   # Wait timeout for healthy OSD before proceeding with upgrade.
   waitTimeoutForHealthyOSDInMinutes: 10
-  
+
   # Mon configuration (3 mons for production quorum).
+  # For single-node testing, see README for configuration changes.
   mon:
     count: 3
-    allowMultiplePerNode: true  # Required for single-node clusters
-  
+    allowMultiplePerNode: false
+
   # Manager configuration.
   mgr:
     count: 1
@@ -48,28 +49,28 @@ spec:
     modules:
       - name: pg_autoscaler
         enabled: true
-  
+
   # Dashboard disabled by default (enable via helm values if needed).
   dashboard:
     enabled: false
-  
+
   # Monitoring disabled by default.
   monitoring:
     enabled: false
-  
+
   # Network configuration.
   network:
-    # Use host networking for better performance.
+    # Use host networking for better performance in production.
     provider: host
-  
+
   # Crash collector to gather crash reports.
   crashCollector:
     disable: false
-  
+
   # Log collector disabled to reduce resource usage.
   logCollector:
     enabled: false
-  
+
   # Cleanup policy - keep data on cluster deletion.
   cleanupPolicy:
     confirmation: ""
@@ -78,25 +79,25 @@ spec:
       dataSource: zero
       iteration: 1
     allowUninstallWithVolumes: false
-  
+
   # Storage configuration - use all available devices.
   storage:
     useAllNodes: true
     useAllDevices: true
-    
+
     # Device filter to include/exclude devices.
     # deviceFilter: "^sd[b-z]"  # Uncomment to only use sdb, sdc, etc.
-    
+
     config:
       # OSD objectstore type (bluestore is default and recommended).
       storeType: bluestore
-      
+
       # Database size for OSDs (optional, auto-sized by default).
       # databaseSizeMB: "1024"
-      
+
       # Journal size for OSDs (optional, auto-sized by default).
       # journalSizeMB: "1024"
-  
+
   # Resource requests/limits for Ceph daemons.
   resources:
     mon:
@@ -117,13 +118,13 @@ spec:
       requests:
         cpu: "1000m"
         memory: "2Gi"
-  
+
   # Placement for Ceph daemons (allow on all nodes).
   placement:
     all:
       tolerations:
         - operator: Exists
-  
+
   # Priority class for Ceph pods.
   priorityClassNames:
     all: system-cluster-critical
@@ -141,12 +142,13 @@ metadata:
 spec:
   # Failure domain - host level for multi-node, osd level for single-node.
   failureDomain: host
-  
+
   # Replication configuration (3 replicas for production).
+  # For single-node testing, see README for configuration changes.
   replicated:
     size: 3
     requireSafeReplicaSize: true
-  
+
   # Enable RBD mirroring (optional, disabled by default).
   mirroring:
     enabled: false
