@@ -16,6 +16,11 @@ cni: cilium
 # This enables Cilium's kube-proxy replacement feature for better performance.
 disable-kube-proxy: true
 
+# Disable RKE2's built-in ingress controller.
+# Use Cilium's ingress controller instead for better integration with the CNI.
+disable:
+  - rke2-ingress-nginx
+
 # Make kubeconfig readable by non-root users.
 write-kubeconfig-mode: "0644"
 

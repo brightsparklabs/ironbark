@@ -26,6 +26,7 @@ Air-gapped deployment:: Deploys required artifacts (container images, Helm chart
 GitOps workflow:: Uses ArgoCD with an App of Apps pattern for declarative application management.
 Self-hosted Git server:: Internal Gitea instance for repository hosting in disconnected environments.
 Multiple Kubernetes distributions:: Supports deploying either RKE2 or K3s (via Zarf) for cluster bootstrapping.
+Cilium-native networking:: Uses Cilium for CNI, kube-proxy replacement, and ingress controller for eBPF-based networking and security.
 Artifact management:: Download RKE2 installation files, zarf-init packages, and other resources via HTTP endpoints.
 
 Ironbark runs as a container and exposes:
