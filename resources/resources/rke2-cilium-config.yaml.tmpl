@@ -35,3 +35,15 @@ spec:
         enabled: true
       ui:
         enabled: true
+
+    # Enable Cilium Ingress Controller.
+    # This provides native ingress capabilities using Cilium's eBPF datapath.
+    # NOTE: Ensure RKE2 default ingress has been disabled in `/etc/rancher/rke2/config.yaml`.
+    ingressController:
+      enabled: true
+      default: true
+
+    # Enable Gateway API support.
+    # Gateway API is the successor to the Ingress API, providing more advanced traffic routing.
+    gatewayAPI:
+      enabled: true
