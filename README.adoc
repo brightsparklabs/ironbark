@@ -12,7 +12,7 @@ It simplifies the deployment and management of applications through a self-hoste
 |===
 |Ironbark Version |Zarf Version |RKE2 Version |Rook Version (Ceph variant) |Ceph Version (Ceph variant)
 
-|0.x.y |0.64.0 |v1.33.5+rke2r1 |v1.15.8 |v18.2.4
+|0.x.y |0.64.0 |v1.36.3+rke2r1 |v1.15.8 |v18.2.4
 |===
 
 == Overview
