@@ -49,40 +49,11 @@ spec:
       tag: v1.15.8
       pullPolicy: IfNotPresent
 
-    # Configure CSI driver images (also pre-loaded from tarball).
+    # Configure CSI driver images (pre-loaded from tarball).
     csi:
       enableRbdDriver: true
       enableCephfsDriver: true
       enableGrpcMetrics: false
-
-      # Use pre-loaded images from tarball.
-      csiRBDProvisionerResource: |
-        - name: csi-provisioner
-          image: registry.k8s.io/sig-storage/csi-provisioner:v5.2.0
-        - name: csi-resizer
-          image: registry.k8s.io/sig-storage/csi-resizer:v1.13.2
-        - name: csi-attacher
-          image: registry.k8s.io/sig-storage/csi-attacher:v4.8.1
-        - name: csi-snapshotter
-          image: registry.k8s.io/sig-storage/csi-snapshotter:v8.2.1
-        - name: csi-rbdplugin
-          image: quay.io/cephcsi/cephcsi:v3.12.2
-        - name: csi-node-driver-registrar
-          image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.13.0
-
-      csiCephFSProvisionerResource: |
-        - name: csi-provisioner
-          image: registry.k8s.io/sig-storage/csi-provisioner:v5.2.0
-        - name: csi-resizer
-          image: registry.k8s.io/sig-storage/csi-resizer:v1.13.2
-        - name: csi-attacher
-          image: registry.k8s.io/sig-storage/csi-attacher:v4.8.1
-        - name: csi-snapshotter
-          image: registry.k8s.io/sig-storage/csi-snapshotter:v8.2.1
-        - name: csi-cephfsplugin
-          image: quay.io/cephcsi/cephcsi:v3.12.2
-        - name: csi-node-driver-registrar
-          image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.13.0
 
     # Resource requests/limits for operator pod.
     resources:

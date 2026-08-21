@@ -323,11 +323,22 @@ export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
 - For air-gapped: embed chart as base64 `chartContent` (host paths don't work)
 - Example: `chart: /path/to/file` fails because helm-install pod can't access host filesystem
 
-**Image format requirements:**
-- RKE2 expects OCI layout format (manifest.json + blobs/)
-- NOT docker-archive format (.tar files inside tarball)
-- Use zstd compression for consistency: `tar -I 'zstd -19 -T0' -cf file.tar.zst`
+**Image format requirements (CRITICAL):**
+- **Use docker-archive format, NOT OCI layout format**
+- RKE2/containerd requires explicit image name:tag in the archive for proper loading
+- Correct: `skopeo copy docker://source docker-archive:/tmp/image.tar:repo/name:tag`
+- Wrong: `skopeo copy docker://source oci:/tmp/image` (loses tag metadata)
+- Use zstd compression for consistency: `zstd -T0 -19 /tmp/image.tar -o file.tar.zst`
 - Naming: `rke2-images-<name>.linux-<arch>.tar.zst`
+- **Verify format:** `zstd -d -c file.tar.zst | tar -t | head` should show `manifest.json` and `repositories`, NOT `blobs/` and `oci-layout`
+
+**Version alignment for Helm charts:**
+- **CRITICAL:** Package the exact image versions that the Helm chart expects by default
+- Don't override chart image versions in Helm values unless absolutely necessary
+- **To update Rook CSI versions:** Check the Rook Helm chart's `values.yaml` for the version you're using (e.g., https://github.com/rook/rook/blob/v1.15.8/deploy/charts/rook-ceph/values.yaml)
+- Update the `ARG` variables at the top of the Dockerfile to match the chart's default image tags
+- All image versions should be defined as `ARG` variables with comments explaining how to keep them aligned
+- The VERSION.json file should document all packaged versions for traceability
 
 ### SELinux Configuration
 
@@ -339,3 +350,37 @@ export KUBECONFIG=/etc/rancher/rke2/rke2.yaml
 - Simpler to run SELinux in permissive mode (default)
 - Applications like Rook-Ceph handle privileged pods via their own mechanisms (e.g., `ROOK_HOSTPATH_REQUIRES_PRIVILEGED=true`)
 - This works correctly on SELinux enforcing systems without requiring RKE2 SELinux integration
+
+### Rook-Ceph Deployment Lessons
+
+**Image Format (CRITICAL):**
+- RKE2/containerd requires **docker-archive format**, NOT OCI layout format
+- Correct: `skopeo copy docker://source docker-archive:/tmp/image.tar:repo/name:tag`
+- Wrong: `skopeo copy docker://source oci:/tmp/image` (loses tag metadata)
+- Use `zstd -T0 -19` for compression, naming: `rke2-images-<name>.linux-<arch>.tar.zst`
+- Verify format: `zstd -d -c file.tar.zst | tar -t | head` should show `manifest.json` and `repositories`, NOT `blobs/` and `oci-layout`
+
+**Version Alignment:**
+- Package the exact image versions that the Helm chart expects by default
+- Check the chart's `values.yaml` for default image tags (e.g., https://github.com/rook/rook/blob/v1.15.8/deploy/charts/rook-ceph/values.yaml)
+- Define all versions as `ARG` variables at the top of Dockerfile with comments
+- Document all packaged versions in VERSION.json for traceability
+- Do NOT override chart values unless absolutely necessary - let the chart use its defaults
+
+**Old Ceph Data Cleanup:**
+- Authentication errors (`unexpected key`) indicate old Ceph data from previous deployments
+- Must clean BOTH `/dev/vdb` (or storage device) AND `/var/lib/rook/*` before redeploying
+- Device wipe: `sudo dd if=/dev/zero of=/dev/vdb bs=1M count=100 && sudo wipefs -a /dev/vdb`
+- Data directory: `sudo rm -rf /var/lib/rook/*`
+
+**Resource Requirements:**
+- Minimum for Rook-Ceph testing: 6 CPU cores, 12-16GB RAM
+- 4 cores + 8GB RAM is insufficient for full deployment with all CSI features
+- Monitor CPU/memory allocation: `kubectl describe node | grep "Allocated resources"`
+- For constrained environments, disable CephFS: only RBD (block storage) needed for basic testing
+
+**Common Deployment Issues:**
+- Pause container image (`rancher/mirrored-pause:3.6`) missing after RKE2 restart/reboot
+- Solution: Re-import core images: `sudo ctr -a /run/k3s/containerd/containerd.sock -n k8s.io images import /var/lib/rancher/rke2/agent/images/rke2-images-core.linux-amd64.tar.zst`
+- OSD pods won't create if disk has old Ceph metadata - check OSD prepare logs
+- CephCluster stuck deleting: remove finalizers from dependent resources (CephBlockPool) first

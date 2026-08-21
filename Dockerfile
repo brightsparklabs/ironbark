@@ -27,7 +27,16 @@ ARG RKE2_VERSION=v1.33.5+rke2r1
 ARG LOCAL_PATH_PROVISIONER_VERSION=v0.0.30
 ARG ROOK_VERSION=v1.15.8
 ARG CEPH_VERSION=v18.2.4
-ARG CEPHCSI_VERSION=v3.12.2
+
+# CSI image versions - MUST match Rook Helm chart defaults for ROOK_VERSION.
+# To update: Check https://github.com/rook/rook/blob/v1.15.8/deploy/charts/rook-ceph/values.yaml
+# and update these ARGs to match the default image tags in the chart.
+ARG CEPHCSI_VERSION=v3.12.3
+ARG CSI_PROVISIONER_VERSION=v5.0.1
+ARG CSI_ATTACHER_VERSION=v4.6.1
+ARG CSI_RESIZER_VERSION=v1.11.1
+ARG CSI_SNAPSHOTTER_VERSION=v8.0.1
+ARG CSI_NODE_DRIVER_REGISTRAR_VERSION=v2.11.1
 
 # ------------------------------------------------------------------------------
 # BUILDER STAGE - TOOLING
@@ -182,7 +191,7 @@ RUN skopeo copy \
       docker://rancher/local-path-provisioner:${LOCAL_PATH_PROVISIONER_VERSION} \
       docker-archive:/tmp/local-path-provisioner.tar:rancher/local-path-provisioner:${LOCAL_PATH_PROVISIONER_VERSION} \
       && zstd -T0 -19 /tmp/local-path-provisioner.tar \
-      -o "rke2-images-local-path.linux-${ARCH}.tar.zst" \
+      -o "csi-images-local-path.linux-${ARCH}-${LOCAL_PATH_PROVISIONER_VERSION}.tar.zst" \
       && rm /tmp/local-path-provisioner.tar
 
 RUN cat > VERSION.json <<EOF
@@ -232,62 +241,80 @@ RUN curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | b
 # RKE2 expects OCI layout format (manifest.json + blobs/), not docker-archive format.
 # Each image gets its own OCI directory that is then tarred separately.
 
+# NOTE:
+#
+# The below commands are chained with && to avoid storing intermediate .tar files in Docker layers.
+# Since this is a builder stage, the chaining doesn't affect the final image size.
+# However it keeps build cache clean.
+
 # Download Rook operator image.
 RUN skopeo copy \
       docker://rook/ceph:${ROOK_VERSION} \
-      oci:/tmp/rook-ceph \
-      && tar -I 'zstd -19 -T0' -cf rke2-images-rook-ceph.linux-amd64.tar.zst -C /tmp/rook-ceph . \
-      && rm -rf /tmp/rook-ceph
+      docker-archive:/tmp/rook-ceph.tar:rook/ceph:${ROOK_VERSION} \
+      && zstd -T0 -19 /tmp/rook-ceph.tar \
+      -o csi-images-rook-ceph.linux-amd64-${ROOK_VERSION}.tar.zst \
+      && rm /tmp/rook-ceph.tar
 
 # Download Ceph cluster image.
 RUN skopeo copy \
       docker://quay.io/ceph/ceph:${CEPH_VERSION} \
-      oci:/tmp/ceph \
-      && tar -I 'zstd -19 -T0' -cf rke2-images-ceph.linux-amd64.tar.zst -C /tmp/ceph . \
-      && rm -rf /tmp/ceph
+      docker-archive:/tmp/ceph.tar:quay.io/ceph/ceph:${CEPH_VERSION} \
+      && zstd -T0 -19 /tmp/ceph.tar \
+      -o csi-images-ceph.linux-amd64-${CEPH_VERSION}.tar.zst \
+      && rm /tmp/ceph.tar
 
 # Download Ceph CSI driver image.
 RUN skopeo copy \
       docker://quay.io/cephcsi/cephcsi:${CEPHCSI_VERSION} \
-      oci:/tmp/cephcsi \
-      && tar -I 'zstd -19 -T0' -cf rke2-images-cephcsi.linux-amd64.tar.zst -C /tmp/cephcsi . \
-      && rm -rf /tmp/cephcsi
+      docker-archive:/tmp/cephcsi.tar:quay.io/cephcsi/cephcsi:${CEPHCSI_VERSION} \
+      && zstd -T0 -19 /tmp/cephcsi.tar \
+      -o csi-images-cephcsi.linux-amd64-${CEPHCSI_VERSION}.tar.zst \
+      && rm /tmp/cephcsi.tar
 
-# Download CSI sidecar images (using latest stable versions).
-# These are required for CSI driver operation.
+# Download CSI sidecar images matching Rook Helm chart defaults.
+# Versions are defined as ARGs at the top of this file.
+ARG CSI_PROVISIONER_VERSION
 RUN skopeo copy \
-      docker://registry.k8s.io/sig-storage/csi-provisioner:v5.2.0 \
-      oci:/tmp/csi-provisioner \
-      && tar -I 'zstd -19 -T0' -cf rke2-images-csi-provisioner.linux-amd64.tar.zst -C /tmp/csi-provisioner . \
-      && rm -rf /tmp/csi-provisioner
+      docker://registry.k8s.io/sig-storage/csi-provisioner:${CSI_PROVISIONER_VERSION} \
+      docker-archive:/tmp/csi-provisioner.tar:registry.k8s.io/sig-storage/csi-provisioner:${CSI_PROVISIONER_VERSION} \
+      && zstd -T0 -19 /tmp/csi-provisioner.tar \
+      -o csi-images-csi-provisioner.linux-amd64-${CSI_PROVISIONER_VERSION}.tar.zst \
+      && rm /tmp/csi-provisioner.tar
 
+ARG CSI_ATTACHER_VERSION
 RUN skopeo copy \
-      docker://registry.k8s.io/sig-storage/csi-attacher:v4.8.1 \
-      oci:/tmp/csi-attacher \
-      && tar -I 'zstd -19 -T0' -cf rke2-images-csi-attacher.linux-amd64.tar.zst -C /tmp/csi-attacher . \
-      && rm -rf /tmp/csi-attacher
+      docker://registry.k8s.io/sig-storage/csi-attacher:${CSI_ATTACHER_VERSION} \
+      docker-archive:/tmp/csi-attacher.tar:registry.k8s.io/sig-storage/csi-attacher:${CSI_ATTACHER_VERSION} \
+      && zstd -T0 -19 /tmp/csi-attacher.tar \
+      -o csi-images-csi-attacher.linux-amd64-${CSI_ATTACHER_VERSION}.tar.zst \
+      && rm /tmp/csi-attacher.tar
 
+ARG CSI_RESIZER_VERSION
 RUN skopeo copy \
-      docker://registry.k8s.io/sig-storage/csi-resizer:v1.13.2 \
-      oci:/tmp/csi-resizer \
-      && tar -I 'zstd -19 -T0' -cf rke2-images-csi-resizer.linux-amd64.tar.zst -C /tmp/csi-resizer . \
-      && rm -rf /tmp/csi-resizer
+      docker://registry.k8s.io/sig-storage/csi-resizer:${CSI_RESIZER_VERSION} \
+      docker-archive:/tmp/csi-resizer.tar:registry.k8s.io/sig-storage/csi-resizer:${CSI_RESIZER_VERSION} \
+      && zstd -T0 -19 /tmp/csi-resizer.tar \
+      -o csi-images-csi-resizer.linux-amd64-${CSI_RESIZER_VERSION}.tar.zst \
+      && rm /tmp/csi-resizer.tar
 
+ARG CSI_SNAPSHOTTER_VERSION
 RUN skopeo copy \
-      docker://registry.k8s.io/sig-storage/csi-snapshotter:v8.2.1 \
-      oci:/tmp/csi-snapshotter \
-      && tar -I 'zstd -19 -T0' -cf rke2-images-csi-snapshotter.linux-amd64.tar.zst -C /tmp/csi-snapshotter . \
-      && rm -rf /tmp/csi-snapshotter
+      docker://registry.k8s.io/sig-storage/csi-snapshotter:${CSI_SNAPSHOTTER_VERSION} \
+      docker-archive:/tmp/csi-snapshotter.tar:registry.k8s.io/sig-storage/csi-snapshotter:${CSI_SNAPSHOTTER_VERSION} \
+      && zstd -T0 -19 /tmp/csi-snapshotter.tar \
+      -o csi-images-csi-snapshotter.linux-amd64-${CSI_SNAPSHOTTER_VERSION}.tar.zst \
+      && rm /tmp/csi-snapshotter.tar
 
+ARG CSI_NODE_DRIVER_REGISTRAR_VERSION
 RUN skopeo copy \
-      docker://registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.13.0 \
-      oci:/tmp/csi-node-driver-registrar \
-      && tar -I 'zstd -19 -T0' -cf rke2-images-csi-node-driver-registrar.linux-amd64.tar.zst -C /tmp/csi-node-driver-registrar . \
-      && rm -rf /tmp/csi-node-driver-registrar
+      docker://registry.k8s.io/sig-storage/csi-node-driver-registrar:${CSI_NODE_DRIVER_REGISTRAR_VERSION} \
+      docker-archive:/tmp/csi-node-driver-registrar.tar:registry.k8s.io/sig-storage/csi-node-driver-registrar:${CSI_NODE_DRIVER_REGISTRAR_VERSION} \
+      && zstd -T0 -19 /tmp/csi-node-driver-registrar.tar \
+      -o csi-images-csi-node-driver-registrar.linux-amd64-${CSI_NODE_DRIVER_REGISTRAR_VERSION}.tar.zst \
+      && rm /tmp/csi-node-driver-registrar.tar
 
 # Download Rook Helm chart for air-gapped deployment.
 # Base64-encode it and inject into the HelmChart manifest as chartContent.
-# This is required because RKE2's helm-install pod cannot access host filesystem paths.
 RUN helm fetch rook-release/rook-ceph \
       --version ${ROOK_VERSION} \
       --destination /tmp
@@ -301,7 +328,7 @@ RUN CHART_CONTENT=$(base64 -w 0 /tmp/rook-ceph-${ROOK_VERSION}.tgz) \
       && rm /tmp/csi-rook-ceph-chart.yaml.tmpl /tmp/rook-ceph-${ROOK_VERSION}.tgz
 
 # Remove the local-path provisioner image tarball as we're using Ceph instead.
-RUN rm -f rke2-images-local-path.linux-*.tar.zst
+RUN rm -f csi-images-local-path.linux-*.tar.zst
 
 # Copy CephCluster CR (this is applied after the operator is deployed).
 # Order matters (alphabetical):
@@ -320,7 +347,12 @@ RUN cat > VERSION.json <<EOF
     "rke2": "${RKE2_VERSION}",
     "rook": "${ROOK_VERSION}",
     "ceph": "${CEPH_VERSION}",
-    "cephcsi": "${CEPHCSI_VERSION}"
+    "cephcsi": "${CEPHCSI_VERSION}",
+    "csi_provisioner": "${CSI_PROVISIONER_VERSION}",
+    "csi_attacher": "${CSI_ATTACHER_VERSION}",
+    "csi_resizer": "${CSI_RESIZER_VERSION}",
+    "csi_snapshotter": "${CSI_SNAPSHOTTER_VERSION}",
+    "csi_node_driver_registrar": "${CSI_NODE_DRIVER_REGISTRAR_VERSION}"
   }
 }
 EOF
