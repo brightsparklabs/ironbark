@@ -25,18 +25,24 @@ ARG KUBECTL_VERSION=v1.36.3
 ARG ZARF_VERSION=v0.76.0
 ARG RKE2_VERSION=v1.36.3+rke2r1
 ARG LOCAL_PATH_PROVISIONER_VERSION=v0.0.30
-ARG ROOK_VERSION=v1.15.8
-ARG CEPH_VERSION=v18.2.4
+ARG ROOK_VERSION=v1.20.6
+ARG CEPH_VERSION=v20.2.4
 
 # CSI image versions - MUST match Rook Helm chart defaults for ROOK_VERSION.
-# To update: Check https://github.com/rook/rook/blob/v1.15.8/deploy/charts/rook-ceph/values.yaml
+# To update: Check https://github.com/rook/rook/blob/v1.20.6/deploy/charts/rook-ceph/values.yaml
 # and update these ARGs to match the default image tags in the chart.
-ARG CEPHCSI_VERSION=v3.12.3
-ARG CSI_PROVISIONER_VERSION=v5.0.1
-ARG CSI_ATTACHER_VERSION=v4.6.1
-ARG CSI_RESIZER_VERSION=v1.11.1
-ARG CSI_SNAPSHOTTER_VERSION=v8.0.1
-ARG CSI_NODE_DRIVER_REGISTRAR_VERSION=v2.11.1
+ARG CEPHCSI_VERSION=v3.17.0
+ARG CSI_PROVISIONER_VERSION=v6.2.0
+ARG CSI_ATTACHER_VERSION=v4.12.0
+ARG CSI_RESIZER_VERSION=v2.1.0
+ARG CSI_SNAPSHOTTER_VERSION=v8.5.0
+ARG CSI_NODE_DRIVER_REGISTRAR_VERSION=v2.17.0
+ARG CSI_ADDONS_VERSION=v0.14.0
+
+# Ceph CSI Operator version - MUST match the subchart version in Rook Helm chart.
+# To update: Check https://github.com/rook/rook/blob/v1.20.6/deploy/charts/rook-ceph/Chart.yaml
+# for the ceph-csi-operator dependency version.
+ARG CEPH_CSI_OPERATOR_VERSION=v1.0.4
 
 # ------------------------------------------------------------------------------
 # BUILDER STAGE - TOOLING
@@ -409,6 +415,40 @@ RUN skopeo copy \
       && rm /tmp/csi-node-driver-registrar.tar
 
 # ------------------------------------------------------------------------------
+# BUILDER STAGE - CSI ADDONS IMAGE
+# ------------------------------------------------------------------------------
+
+FROM builder-rke2-artifacts AS builder-image-csi-addons
+
+ARG CSI_ADDONS_VERSION
+
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
+
+RUN skopeo copy \
+      docker://quay.io/csiaddons/k8s-sidecar:${CSI_ADDONS_VERSION} \
+      docker-archive:/tmp/csi-addons.tar:quay.io/csiaddons/k8s-sidecar:${CSI_ADDONS_VERSION} \
+      && zstd -T0 -19 /tmp/csi-addons.tar \
+      -o csi-images-csi-addons.linux-amd64-${CSI_ADDONS_VERSION}.tar.zst \
+      && rm /tmp/csi-addons.tar
+
+# ------------------------------------------------------------------------------
+# BUILDER STAGE - CEPH CSI OPERATOR IMAGE
+# ------------------------------------------------------------------------------
+
+FROM builder-rke2-artifacts AS builder-image-ceph-csi-operator
+
+ARG CEPH_CSI_OPERATOR_VERSION
+
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
+
+RUN skopeo copy \
+      docker://quay.io/cephcsi/ceph-csi-operator:${CEPH_CSI_OPERATOR_VERSION} \
+      docker-archive:/tmp/ceph-csi-operator.tar:quay.io/cephcsi/ceph-csi-operator:${CEPH_CSI_OPERATOR_VERSION} \
+      && zstd -T0 -19 /tmp/ceph-csi-operator.tar \
+      -o csi-images-ceph-csi-operator.linux-amd64-${CEPH_CSI_OPERATOR_VERSION}.tar.zst \
+      && rm /tmp/ceph-csi-operator.tar
+
+# ------------------------------------------------------------------------------
 # BUILDER STAGE - RKE2 CEPH ARTIFACTS
 # ------------------------------------------------------------------------------
 
@@ -425,14 +465,11 @@ ARG CSI_ATTACHER_VERSION
 ARG CSI_RESIZER_VERSION
 ARG CSI_SNAPSHOTTER_VERSION
 ARG CSI_NODE_DRIVER_REGISTRAR_VERSION
+ARG CSI_ADDONS_VERSION
+ARG CEPH_CSI_OPERATOR_VERSION
 
 # Enable strict error handling.
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
-
-# Install Helm for downloading the Rook Helm chart.
-RUN curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash \
-      && helm repo add rook-release https://charts.rook.io/release \
-      && helm repo update
 
 # Copy all image tarballs from their respective build stages.
 # These were built in parallel, so this is just collecting the results.
@@ -444,23 +481,21 @@ COPY --from=builder-image-csi-attacher /build/resources/rke2/csi-images-csi-atta
 COPY --from=builder-image-csi-resizer /build/resources/rke2/csi-images-csi-resizer.*.tar.zst ./
 COPY --from=builder-image-csi-snapshotter /build/resources/rke2/csi-images-csi-snapshotter.*.tar.zst ./
 COPY --from=builder-image-csi-node-driver-registrar /build/resources/rke2/csi-images-csi-node-driver-registrar.*.tar.zst ./
+COPY --from=builder-image-csi-addons /build/resources/rke2/csi-images-csi-addons.*.tar.zst ./
+COPY --from=builder-image-ceph-csi-operator /build/resources/rke2/csi-images-ceph-csi-operator.*.tar.zst ./
 
-# Download Rook Helm chart for air-gapped deployment.
-# Base64-encode it and inject into the HelmChart manifest as chartContent.
-RUN helm fetch rook-release/rook-ceph \
-      --version ${ROOK_VERSION} \
-      --destination /tmp
+# Download Rook v1.20.6 manifest files directly from GitHub.
+# These are the official Rook quickstart manifests, used unchanged.
+# Deployment order: crds -> common -> csi-operator -> operator -> cluster -> pool -> storageclass
+RUN curl -sL https://raw.githubusercontent.com/rook/rook/${ROOK_VERSION}/deploy/examples/crds.yaml -o rook-crds.yaml \
+      && curl -sL https://raw.githubusercontent.com/rook/rook/${ROOK_VERSION}/deploy/examples/common.yaml -o rook-common.yaml \
+      && curl -sL https://raw.githubusercontent.com/rook/rook/${ROOK_VERSION}/deploy/examples/csi-operator.yaml -o rook-csi-operator.yaml \
+      && curl -sL https://raw.githubusercontent.com/rook/rook/${ROOK_VERSION}/deploy/examples/operator.yaml -o rook-operator.yaml \
+      && curl -sL https://raw.githubusercontent.com/rook/rook/${ROOK_VERSION}/deploy/examples/cluster.yaml -o rook-cluster.yaml \
+      && curl -sL https://raw.githubusercontent.com/rook/rook/${ROOK_VERSION}/deploy/examples/pool.yaml -o rook-pool.yaml
 
-# Copy the HelmChart manifest template and inject the base64-encoded chart.
-# The __CHART_CONTENT_BASE64__ placeholder will be replaced with the actual chart content.
-COPY resources/resources/csi-rook-ceph-chart.yaml.tmpl /tmp/csi-rook-ceph-chart.yaml.tmpl
-RUN CHART_CONTENT=$(base64 -w 0 /tmp/rook-ceph-${ROOK_VERSION}.tgz) \
-      && sed "s|__CHART_CONTENT_BASE64__|${CHART_CONTENT}|" \
-            /tmp/csi-rook-ceph-chart.yaml.tmpl > csi-rook-ceph-chart.yaml \
-      && rm /tmp/csi-rook-ceph-chart.yaml.tmpl /tmp/rook-ceph-${ROOK_VERSION}.tgz
-
-# Copy CephCluster CR (this is applied after the operator is deployed).
-COPY resources/resources/csi-rook-ceph-cluster.yaml.tmpl csi-rook-ceph-cluster.yaml
+# Copy custom StorageClass (based on official example, modified to be default).
+COPY resources/resources/rook-storageclass.yaml ./
 
 # Remove the local-path CSI manifest.
 RUN rm -f csi-local-path-provisioner.yaml

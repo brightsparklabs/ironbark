@@ -12,7 +12,7 @@ It simplifies the deployment and management of applications through a self-hoste
 |===
 |Ironbark Version |Zarf Version |RKE2 Version |Rook Version (Ceph variant) |Ceph Version (Ceph variant)
 
-|0.x.y |0.64.0 |v1.36.3+rke2r1 |v1.15.8 |v18.2.4
+|0.x.y |0.64.0 |v1.36.3+rke2r1 |v1.20.6 |v20.2.4
 |===
 
 == Overview
@@ -42,9 +42,9 @@ If you need to install Kubernetes in an air-gapped environment, see <<RKE2 Air-g
 
 === Prerequisites
 
-* A Kubernetes cluster (EKS, RKE2, K3s, GKE, etc.)
-* Access to the cluster's kubeconfig file
-* Container runtime (Podman or Docker)
+* A Kubernetes cluster (EKS, RKE2, K3s, GKE, etc.).
+* Access to the cluster's kubeconfig file.
+* Container runtime (Podman or Docker).
 
 === Start Ironbark
 
@@ -418,7 +418,7 @@ ArgoCD will automatically deploy the application.
 
 === Container Won't Start
 
-*Problem:* Container exits immediately or won't start.
+*Problem:* Container exits immediately or will not start.
 
 *Solution:* Check container logs:
 
@@ -709,10 +709,8 @@ tar -xzf rke2.tar.gz
 cd rke2/
 ----
 
-=== Prepare RKE2 Install Files
+=== Copy image tarballs
 
-. Copy container image tarballs to RKE2:
-+
 [source,bash]
 ----
 sudo mkdir -p /var/lib/rancher/rke2/agent/images
@@ -722,12 +720,19 @@ sudo cp csi-images-*.tar.zst /var/lib/rancher/rke2/agent/images/
 # Improve startup time by only importing tarballs that have changes since they were last imported.
 sudo touch /var/lib/rancher/rke2/agent/images/.cache.json
 ----
-+
-IMPORTANT: Both `rke2-images-cilium` and `rke2-images-core` tarballs are required for air-gapped deployment.
 
-. Configure RKE2 to use Cilium CNI:
+=== Configure RKE2
+
+IMPORTANT: Any configuration changes for RKE2 must be done now, *before* starting RKE2.
 +
-The Ironbark RKE2 variant includes a Cilium configuration that enables kube-proxy replacement and configures Cilium to use localhost for Kubernetes API access (avoiding firewall issues).
+CSI driver installation is covered in a separate section after the cluster is running.
+
+. Make any desired changes to the configuration files:
+[horizontal]
+RKE2:: `config.yaml.template`
+CNI:: `rke2-cilium-config.yaml`
+
+. Deploy configuration files:
 +
 [source,bash]
 ----
@@ -738,18 +743,6 @@ sudo cp config.yaml.template /etc/rancher/rke2/config.yaml
 sudo mkdir -p /var/lib/rancher/rke2/server/manifests
 sudo cp rke2-cilium-config.yaml /var/lib/rancher/rke2/server/manifests/
 ----
-
-=== Configure RKE2
-
-IMPORTANT: Any configuration changes for RKE2 must be done now, *before* starting RKE2.
-
-Make any desired changes to the configuration files:
-
-[horizontal]
-RKE2:: `/etc/rancher/rke2/config.yaml`
-CNI:: `/var/lib/rancher/rke2/server/manifests/rke2-cilium-config.yaml`
-
-NOTE: CSI driver installation is covered in a separate section after the cluster is running.
 
 === Install RKE2
 
@@ -958,49 +951,87 @@ For Rook-Ceph to work properly:
 * Each node needs a **raw block device** (unformatted, no partitions) for Ceph OSDs.
 --
 
-===== Install CRDs
+===== Deploy Rook Operator
+
+Deploy the Rook operator and CSI operator using the official Rook manifests:
 
 [source,bash]
 ----
-# Copy HelmChart CRD manifest (contains base64-encoded chart).
-sudo cp csi-rook-ceph-chart.yaml /var/lib/rancher/rke2/server/manifests/
+# Copy Rook manifest files (official manifests, unchanged).
+sudo cp rook-crds.yaml /var/lib/rancher/rke2/server/manifests/
+sudo cp rook-common.yaml /var/lib/rancher/rke2/server/manifests/
+sudo cp rook-csi-operator.yaml /var/lib/rancher/rke2/server/manifests/
+sudo cp rook-operator.yaml /var/lib/rancher/rke2/server/manifests/
 sudo systemctl restart rke2-server
 
-# Wait for Rook operator to deploy and CRDs to be installed (takes ~2 minutes).
+# Wait for Rook operator to deploy (takes ~2 minutes).
 kubectl wait --for=condition=ready pod -l app=rook-ceph-operator -n rook-ceph --timeout=300s
 
 # Verify CRDs are installed.
 kubectl get crd cephclusters.ceph.rook.io
+
+# Verify CSI operator is running.
+kubectl get pods -n rook-ceph -l control-plane=ceph-csi-op-controller-manager
 ----
 
 ===== Configure CephCluster
 
-[source,bash]
-----
-# Copy CephCluster manifest.
-sudo cp csi-rook-ceph-cluster.yaml /var/lib/rancher/rke2/server/manifests/
-----
-
-Make any desired changes to the configuration files:
-
+. Make any desired changes to the configuration files:
++
+--
 [horizontal]
-CephCluster:: /var/lib/rancher/rke2/server/manifests/csi-rook-ceph-cluster.yaml
+CephCluster:: `rook-cluster.yaml`
+CephBlockPool:: `rook-pool.yaml`
+StorageClass:: `rook-storageclass.yaml`
+--
++
+[IMPORTANT]
+--
+*Use `aes256k` if all your nodes are on Linux kernel 7.0+.*
 
+This  is done by making the following changes to `rook-cluster.yaml`:
+
+[source,yaml]
+----
+  apiVersion: ceph.rook.io/v1
+  kind: CephCluster
+    security:
+      cephx:
++       allowedCiphers:
++         - aes256k
+        csi:
+-         keyType: aes # required when Kubernetes nodes don't run Linux kernel 7.0+
++         keyType: aes256k
+----
+
+If your nodes are not currently on Linux kernel 7.0+, rotate the keys as soon as possible once the nodes are on the 7.0+ kernel.
+Refer to https://rook.io/docs/rook/latest-release/Storage-Configuration/Advanced/cephx-key-rotation/#migrating-csi-keys-to-a-new-key-type[the Rook Documentation] for details.
+--
++
 TIP: If *testing* on a single-node cluster see <<Testing Ceph on a single-node cluster>>.
 
-===== Create CephCluster
-
+. Deploy configuration files:
 [source,bash]
 ----
+sudo cp rook-cluster.yaml /var/lib/rancher/rke2/server/manifests/
+sudo cp rook-pool.yaml /var/lib/rancher/rke2/server/manifests/
+sudo cp rook-storageclass.yaml /var/lib/rancher/rke2/server/manifests/
 sudo systemctl restart rke2-server
 ----
 
-Ceph cluster initialisation takes 5-10 minutes.
-Verify with:
+===== Verify CephCluster
 
 [source,bash]
 ----
+# Ceph cluster initialisation takes 5-10 minutes.
+# Verify Ceph cluster is healthy.
 kubectl -n rook-ceph get cephcluster
+
+# Wait for pool to be ready.
+kubectl wait --for=jsonpath='{.status.phase}'=Ready cephblockpool -n rook-ceph replicapool --timeout=300s
+
+# Verify default StorageClass is created.
+kubectl get storageclass
 ----
 
 ==== Verify CSI driver
@@ -1009,9 +1040,6 @@ Verify CSI driver is deployed and working:
 
 [source,bash]
 ----
-# Verify default StorageClass is created.
-kubectl get storageclass
-
 # Optional: Test PVC creation.
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
@@ -1074,50 +1102,72 @@ A single OSD or node failure will result in data loss.
 Only use for testing/development, *never* in production.
 
 The Rook-Ceph variant is configured for production multi-node deployments by default.
-For single-node testing, you must modify the configuration before and after deployment.
+For single-node testing, you must modify **two files** before deploying them.
 
-[source,yaml]
-----
-  ---
-  apiVersion: ceph.rook.io/v1
-  kind: CephCluster
-  spec:
-    # Change monitor count from 3 to 1.
-    mon:
--     count: 3
-+     count: 1
+=== Modify Cluster Configuration
 
-  ...
-
-  ---
-  apiVersion: ceph.rook.io/v1
-  kind: CephBlockPool
-  spec:
-    # Failure domain - host level for multi-node, osd level for single-node.
-    failureDomain: host
-
-    # Replication configuration (3 replicas for production).
-    replicated:
-      # Change replicas from 3 to 1.
--     size: 3
--     requireSafeReplicaSize: true
-+     size: 1
-+     requireSafeReplicaSize: false
-----
-
-
-#TODO#
-
-After the CephCluster is deployed, you must also patch the `CephBlockPool` to use 1 replica instead of 3:
+Edit `rook-cluster.yaml`:
 
 [source,bash]
 ----
+vi rook-cluster.yaml
+----
+
+Make the following changes:
+
+[source,yaml]
+----
+apiVersion: ceph.rook.io/v1
+kind: CephCluster
+metadata:
+  name: rook-ceph
+  namespace: rook-ceph
+spec:
+  mon:
+-   count: 3                    # Production: 3 monitors
++   count: 1                    # Single-node: 1 monitor
+  mgr:
+-   count: 2                    # Production: 2 managers
++   count: 1                    # Single-node: 1 manager
+----
+
+=== Modify Pool Configuration
+
+Edit `rook-pool.yaml`:
+
+[source,bash]
+----
+vi rook-pool.yaml
+----
+
+Make the following changes:
+
+[source,yaml]
+----
+apiVersion: ceph.rook.io/v1
+kind: CephBlockPool
+metadata:
+  name: replicapool
+  namespace: rook-ceph
+spec:
+  failureDomain: host
+  replicated:
+-   size: 3                              # Production: 3 replicas
+-   requireSafeReplicaSize: true         # Production: require safety
++   size: 1                              # Single-node: 1 replica (no redundancy)
++   requireSafeReplicaSize: false        # Single-node: disable safety check
+----
+
+After making these changes, deploy the modified cluster manifest:
+
+[source,bash]
+----
+sudo cp rook-cluster.yaml /var/lib/rancher/rke2/server/manifests/
+sudo cp rook-pool.yaml /var/lib/rancher/rke2/server/manifests/
+sudo systemctl restart rke2-server
+
 # Wait for CephCluster to be created.
 kubectl get cephcluster -n rook-ceph
-
-# Patch the pool to use 1 replica.
-kubectl patch cephblockpool -n rook-ceph replicapool --type merge \
-  -p '{"spec":{"replicated":{"size":1,"requireSafeReplicaSize":false}}}'
 
 # Verify pool is now Ready.
 kubectl get cephblockpool -n rook-ceph
