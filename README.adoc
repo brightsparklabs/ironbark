@@ -12,7 +12,7 @@ It simplifies the deployment and management of applications through a self-hoste
 |===
 |Ironbark Version |Zarf Version |RKE2 Version |Rook Version (Ceph variant) |Ceph Version (Ceph variant)
 
-|0.x.y |0.64.0 |v1.33.5+rke2r1 |v1.15.8 |v18.2.4
+|0.x.y |0.64.0 |v1.36.3+rke2r1 |v1.20.6 |v20.2.4
 |===
 
 == Overview
@@ -26,6 +26,7 @@ Air-gapped deployment:: Deploys required artifacts (container images, Helm chart
 GitOps workflow:: Uses ArgoCD with an App of Apps pattern for declarative application management.
 Self-hosted Git server:: Internal Gitea instance for repository hosting in disconnected environments.
 Multiple Kubernetes distributions:: Supports deploying either RKE2 or K3s (via Zarf) for cluster bootstrapping.
+Cilium-native networking:: Uses Cilium for CNI, kube-proxy replacement, and ingress controller for eBPF-based networking and security.
 Artifact management:: Download RKE2 installation files, zarf-init packages, and other resources via HTTP endpoints.
 
 Ironbark runs as a container and exposes:
@@ -37,13 +38,13 @@ Port 3000:: Git HTTP proxy for cloning/pushing to the internal Gitea server.
 == Quick Start
 
 This quick start assumes you have an existing Kubernetes cluster.
-If you need to install Kubernetes in an air-gapped environment, see <<Air-gapped Kubernetes Installation>>.
+If you need to install Kubernetes in an air-gapped environment, see <<RKE2 Air-gapped Kubernetes Installation>>.
 
 === Prerequisites
 
-* A Kubernetes cluster (EKS, RKE2, K3s, GKE, etc.)
-* Access to the cluster's kubeconfig file
-* Container runtime (Podman or Docker)
+* A Kubernetes cluster (EKS, RKE2, K3s, GKE, etc.).
+* Access to the cluster's kubeconfig file.
+* Container runtime (Podman or Docker).
 
 === Start Ironbark
 
@@ -372,7 +373,7 @@ Is referenced as::
 ----
   applications:
     ...
-  
+
 +   - name: whoami
 +     chart:
 +       name: ironbark/charts/ghcr.io/cowboysysop/charts/whoami
@@ -380,7 +381,7 @@ Is referenced as::
 +     values:
 +       path: apps/whoami/values.yaml
 +       targetRevision: HEAD
-+ 
++
 +       # Optional: Set Helm values from file contents (equivalent to `helm --set-file`).
 +       #fileParameters:
 +       #  # Equivalent to `helm --set-file config.json=apps/whoami/config.json`.
@@ -417,7 +418,7 @@ ArgoCD will automatically deploy the application.
 
 === Container Won't Start
 
-*Problem:* Container exits immediately or won't start.
+*Problem:* Container exits immediately or will not start.
 
 *Solution:* Check container logs:
 
@@ -488,7 +489,7 @@ kubectl get applications -n bsl-ironbark-argocd
 
 Ironbark follows a layered architecture:
 
-*Container Layer:* 
+*Container Layer:*
 
 * Runs as HTTP API server by default (port 8080).
 * Git HTTP proxy for repository access (port 3000).
@@ -571,15 +572,13 @@ Refer to `LICENSE` file in the repository root.
 * https://docs.rke2.io/[RKE2] - Security-focused Kubernetes distribution
 
 [appendix]
-== Air-gapped Kubernetes Installation
+== RKE2 Air-gapped Kubernetes Installation
 
 This section covers installing Kubernetes in an air-gapped environment using artifacts downloaded from Ironbark.
 
-=== Using RKE2 (Recommended)
-
 RKE2 is Rancher's security-focused Kubernetes distribution, ideal for air-gapped and compliance-driven environments.
 
-==== RKE2 Image Variants
+=== RKE2 Image Variants
 
 Ironbark provides two RKE2 image variants with different CSI storage drivers:
 
@@ -640,12 +639,12 @@ Configuration::::
 The Ceph cluster auto-discovers and uses all available raw devices.
 Customise via CephCluster CR in deployed manifest if needed.
 
-==== Configure firewall for pod network access
+=== Configure firewall for pod network access
 
 The firewall must be configured to allow pods to communicate with the host.
 Without this configuration, pods cannot reach the Kubernetes API server, causing CoreDNS and other system components to fail.
 
-===== For firewalld (Rocky Linux, RHEL, CentOS):
+==== For firewalld (Rocky Linux, RHEL, CentOS):
 
 [source,bash]
 ----
@@ -660,7 +659,7 @@ sudo firewall-cmd --reload
 sudo firewall-cmd --list-all --zone=trusted
 ----
 
-===== For ufw (Ubuntu, Debian):
+==== For ufw (Ubuntu, Debian):
 
 [source,bash]
 ----
@@ -674,7 +673,7 @@ sudo ufw status
 NOTE: The pod network CIDR `10.42.0.0/16` and service network CIDR `10.43.0.0/16` are RKE2's default.
 If you intend to customise the CIDRs in your RKE2 configuration, use those value instead.
 
-==== Extract RKE2 artifacts
+=== Extract RKE2 artifacts
 
 . Select the appropriate Ironbark RKE2 image:
 For local-path variant (default):::
@@ -710,22 +709,30 @@ tar -xzf rke2.tar.gz
 cd rke2/
 ----
 
-. Copy container image tarballs to RKE2:
-+
+=== Copy image tarballs
+
 [source,bash]
 ----
 sudo mkdir -p /var/lib/rancher/rke2/agent/images
 sudo cp rke2-images-*.tar.zst /var/lib/rancher/rke2/agent/images/
+sudo cp csi-images-*.tar.zst /var/lib/rancher/rke2/agent/images/
 
 # Improve startup time by only importing tarballs that have changes since they were last imported.
 sudo touch /var/lib/rancher/rke2/agent/images/.cache.json
 ----
-+
-IMPORTANT: Both `rke2-images-cilium` and `rke2-images-core` tarballs are required for air-gapped deployment.
 
-. Configure RKE2 to use Cilium CNI:
+=== Configure RKE2
+
+IMPORTANT: Any configuration changes for RKE2 must be done now, *before* starting RKE2.
 +
-The Ironbark RKE2 variant includes a Cilium configuration that enables kube-proxy replacement and configures Cilium to use localhost for Kubernetes API access (avoiding firewall issues).
+CSI driver installation is covered in a separate section after the cluster is running.
+
+. Make any desired changes to the configuration files:
+[horizontal]
+RKE2:: `config.yaml.template`
+CNI:: `rke2-cilium-config.yaml`
+
+. Deploy configuration files:
 +
 [source,bash]
 ----
@@ -737,19 +744,7 @@ sudo mkdir -p /var/lib/rancher/rke2/server/manifests
 sudo cp rke2-cilium-config.yaml /var/lib/rancher/rke2/server/manifests/
 ----
 
-==== Configure RKE2
-
-IMPORTANT: Any configuration changes for RKE2 must be done now, *before* starting RKE2.
-
-Make any desired changes to the configuration files:
-
-[horizontal]
-RKE2:: `/etc/rancher/rke2/config.yaml`
-CNI:: `/var/lib/rancher/rke2/server/manifests/rke2-cilium-config.yaml`
-
-NOTE: CSI driver installation is covered in a separate section after the cluster is running.
-
-==== Install RKE2
+=== Install RKE2
 
 . Install RKE2 from local artifacts:
 +
@@ -788,12 +783,12 @@ kubectl get nodes
 kubectl get pods -A
 ----
 
-==== Adding Additional Nodes (For Multi-Node Clusters)
+=== Adding Additional Nodes (For Multi-Node Clusters)
 
 IMPORTANT: For Rook-Ceph CSI, you MUST add additional nodes BEFORE deploying the CSI driver.
 The default CephBlockPool requires 3 replicas across 3 different hosts.
 
-===== Get Cluster Join Token
+==== Get Cluster Join Token
 
 On the first server node, retrieve the token that additional nodes will use to join:
 
@@ -805,7 +800,7 @@ sudo cat /var/lib/rancher/rke2/server/node-token
 
 Save this token - you'll need it on each additional node.
 
-===== Add Additional Server Nodes (High Availability)
+==== Add Additional Server Nodes (High Availability)
 
 To add more control-plane nodes for HA (highly available cluster), repeat these steps on each additional server node.
 
@@ -872,7 +867,7 @@ sudo systemctl start rke2-server.service
 kubectl get nodes
 ----
 
-===== Add Worker Nodes (Agent-Only)
+==== Add Worker Nodes (Agent-Only)
 
 To add worker-only nodes (agents that run workloads but not control-plane components), repeat these steps on each worker node.
 
@@ -932,11 +927,11 @@ sudo systemctl start rke2-agent.service
 kubectl get nodes
 ----
 
-==== Install CSI Driver (After Cluster is Running)
+=== Install CSI Driver (After Cluster is Running)
 
 IMPORTANT: Only install the CSI driver AFTER the RKE2 cluster is fully operational (all system pods Running).
 
-===== Option 1: Use local-path variant
+==== Option 1: Use local-path variant
 
 [source,bash]
 ----
@@ -944,7 +939,7 @@ sudo cp csi-local-path-provisioner.yaml /var/lib/rancher/rke2/server/manifests/
 sudo systemctl restart rke2-server
 ----
 
-===== Option 2: Use Ceph variant
+==== Option 2: Use Ceph variant
 
 [IMPORTANT]
 --
@@ -954,63 +949,97 @@ For Rook-Ceph to work properly:
 
 * **Minimum 3 nodes** (can be server or agent nodes).
 * Each node needs a **raw block device** (unformatted, no partitions) for Ceph OSDs.
-
-*Single-Node Testing Workaround*
-
-If you only have 1 node for testing, you can modify the CephBlockPool AFTER deployment:
-
-[source,bash]
-----
-# After CephCluster is deployed, patch the pool to use 1 replica.
-kubectl patch cephblockpool -n rook-ceph replicapool --type merge \
-  -p '{"spec":{"replicated":{"size":1,"requireSafeReplicaSize":false}}}'
-
-# Verify pool is now Ready.
-kubectl get cephblockpool -n rook-ceph
-----
-
-WARNING: Single-replica configuration provides NO data redundancy.
-A single OSD or node failure will result in data loss.
-Only use for testing/development.
 --
 
+===== Deploy Rook Operator
+
+Deploy the Rook operator and CSI operator using the official Rook manifests:
+
 [source,bash]
 ----
-# Copy HelmChart CRD manifest (contains base64-encoded chart).
-sudo cp csi-rook-ceph-chart.yaml /var/lib/rancher/rke2/server/manifests/
+# Copy Rook manifest files (official manifests, unchanged).
+sudo cp rook-crds.yaml /var/lib/rancher/rke2/server/manifests/
+sudo cp rook-common.yaml /var/lib/rancher/rke2/server/manifests/
+sudo cp rook-csi-operator.yaml /var/lib/rancher/rke2/server/manifests/
+sudo cp rook-operator.yaml /var/lib/rancher/rke2/server/manifests/
 sudo systemctl restart rke2-server
 
-# Wait for Rook operator to deploy and CRDs to be installed (takes ~2 minutes).
+# Wait for Rook operator to deploy (takes ~2 minutes).
 kubectl wait --for=condition=ready pod -l app=rook-ceph-operator -n rook-ceph --timeout=300s
 
 # Verify CRDs are installed.
 kubectl get crd cephclusters.ceph.rook.io
 
-# Now copy CephCluster manifest.
-sudo cp csi-rook-ceph-cluster.yaml /var/lib/rancher/rke2/server/manifests/
+# Verify CSI operator is running.
+kubectl get pods -n rook-ceph -l control-plane=ceph-csi-op-controller-manager
+----
+
+===== Configure CephCluster
+
+. Make any desired changes to the configuration files:
++
+--
+[horizontal]
+CephCluster:: `rook-cluster.yaml`
+CephBlockPool:: `rook-pool.yaml`
+StorageClass:: `rook-storageclass.yaml`
+--
++
+[IMPORTANT]
+--
+*Use `aes256k` if all your nodes are on Linux kernel 7.0+.*
+
+This  is done by making the following changes to `rook-cluster.yaml`:
+
+[source,yaml]
+----
+  apiVersion: ceph.rook.io/v1
+  kind: CephCluster
+    security:
+      cephx:
++       allowedCiphers:
++         - aes256k
+        csi:
+-         keyType: aes # required when Kubernetes nodes don't run Linux kernel 7.0+
++         keyType: aes256k
+----
+
+If your nodes are not currently on Linux kernel 7.0+, rotate the keys as soon as possible once the nodes are on the 7.0+ kernel.
+Refer to https://rook.io/docs/rook/latest-release/Storage-Configuration/Advanced/cephx-key-rotation/#migrating-csi-keys-to-a-new-key-type[the Rook Documentation] for details.
+--
++
+TIP: If *testing* on a single-node cluster see <<Testing Ceph on a single-node cluster>>.
+
+. Deploy configuration files:
+[source,bash]
+----
+sudo cp rook-cluster.yaml /var/lib/rancher/rke2/server/manifests/
+sudo cp rook-pool.yaml /var/lib/rancher/rke2/server/manifests/
+sudo cp rook-storageclass.yaml /var/lib/rancher/rke2/server/manifests/
 sudo systemctl restart rke2-server
 ----
 
-Ceph cluster initialisation takes 5-10 minutes.
-Verify with:
+===== Verify CephCluster
 
 [source,bash]
 ----
+# Ceph cluster initialisation takes 5-10 minutes.
+# Verify Ceph cluster is healthy.
 kubectl -n rook-ceph get cephcluster
 
-# If ceph-tools has been deployed.
-kubectl -n rook-ceph exec -it deploy/rook-ceph-tools -- ceph status
+# Wait for pool to be ready.
+kubectl wait --for=jsonpath='{.status.phase}'=Ready cephblockpool -n rook-ceph replicapool --timeout=300s
+
+# Verify default StorageClass is created.
+kubectl get storageclass
 ----
 
-===== Verify CSI driver
+==== Verify CSI driver
 
 Verify CSI driver is deployed and working:
 
 [source,bash]
 ----
-# Verify default StorageClass is created.
-kubectl get storageclass
-
 # Optional: Test PVC creation.
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
@@ -1032,24 +1061,120 @@ kubectl get pvc test-pvc
 kubectl delete pvc test-pvc
 ----
 
-==== Deploy Ironbark
+=== Deploy Ironbark
 
-. Upload kubeconfig to Ironbark:
+The cluster is now running.
+Deploy Ironbark as per the <<Quick Start>>.
+
+=== [Optional] Delete cluster
+
+WARNING: This will result in data loss.
+
+If you wish to delete the cluster:
+
+. Stop and uninstall RKE2:
 +
 [source,bash]
 ----
-curl -X POST http://localhost:8080/ironbark/api/v1/k8s/kubeconfig \
-  --data-binary @/etc/rancher/rke2/rke2.yaml
+sudo systemctl stop rke2-server.service
+sudo /usr/local/bin/rke2-uninstall.sh
 ----
-
-. Initialise Ironbark components:
+. If Ceph variant was used:
 +
 [source,bash]
 ----
-curl -X POST http://localhost:8080/ironbark/api/v1/init
+# Delete Ceph data.
+sudo rm -rf /var/lib/rook/*
+
+# Delete Ceph metadata from any disks which were used for the Ceph cluster.
+# E.g. if disk '/dev/vdb' was used.
+sudo dd if=/dev/zero of=/dev/vdb bs=1M count=100
+sudo wipefs -a /dev/vdb
 ----
 
-=== Using K3s (Alternative)
+[appendix]
+== Testing Ceph on a single-node cluster
+
+The following can be done if you are *testing* on a single-node cluster.
+
+WARNING: Single-node Ceph deployments provide *NO data redundancy*.
+A single OSD or node failure will result in data loss.
+Only use for testing/development, *never* in production.
+
+The Rook-Ceph variant is configured for production multi-node deployments by default.
+For single-node testing, you must modify **two files** before deploying them.
+
+=== Modify Cluster Configuration
+
+Edit `rook-cluster.yaml`:
+
+[source,bash]
+----
+vi rook-cluster.yaml
+----
+
+Make the following changes:
+
+[source,yaml]
+----
+apiVersion: ceph.rook.io/v1
+kind: CephCluster
+metadata:
+  name: rook-ceph
+  namespace: rook-ceph
+spec:
+  mon:
+-   count: 3                    # Production: 3 monitors
++   count: 1                    # Single-node: 1 monitor
+  mgr:
+-   count: 2                    # Production: 2 managers
++   count: 1                    # Single-node: 1 manager
+----
+
+=== Modify Pool Configuration
+
+Edit `rook-pool.yaml`:
+
+[source,bash]
+----
+vi rook-pool.yaml
+----
+
+Make the following changes:
+
+[source,yaml]
+----
+apiVersion: ceph.rook.io/v1
+kind: CephBlockPool
+metadata:
+  name: replicapool
+  namespace: rook-ceph
+spec:
+  failureDomain: host
+  replicated:
+-   size: 3                              # Production: 3 replicas
+-   requireSafeReplicaSize: true         # Production: require safety
++   size: 1                              # Single-node: 1 replica (no redundancy)
++   requireSafeReplicaSize: false        # Single-node: disable safety check
+----
+
+After making these changes, deploy the modified cluster manifest:
+
+[source,bash]
+----
+sudo cp rook-cluster.yaml /var/lib/rancher/rke2/server/manifests/
+sudo cp rook-pool.yaml /var/lib/rancher/rke2/server/manifests/
+sudo systemctl restart rke2-server
+
+# Wait for CephCluster to be created.
+kubectl get cephcluster -n rook-ceph
+
+# Verify pool is now Ready.
+kubectl get cephblockpool -n rook-ceph
+----
+
+[appendix]
+== K3s Air-gapped Kubernetes Installation (Alternative)
 
 For K3s deployment, use the default Ironbark image with zarf-init:
 
@@ -1077,7 +1202,7 @@ curl -O http://localhost:8080/ironbark/api/v1/artifact/zarf-init
 zarf init --components=git-server --confirm zarf-init-amd64-*.tar.zst
 ----
 
-. Continue with <<Deploy Ironbark>> from the RKE2 workflow above.
+. Deploy Ironbark as per the <<Quick Start>>.
 
 [appendix]
 == Usage via CLI
@@ -1090,7 +1215,7 @@ For advanced use cases or direct host execution, Ironbark provides CLI commands 
 . `kubectl` is configured and connected to the cluster.
 . Zarf has been initialised on the cluster (`zarf init`).
 
-If any of the above are not met, refer to <<Air-gapped Kubernetes Installation>>.
+If any of the above are not met, refer to <<RKE2 Air-gapped Kubernetes Installation>>.
 
 === Shell Environment
 

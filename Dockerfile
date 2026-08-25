@@ -21,13 +21,28 @@ ARG ALPINE_IMAGE=alpine:3.24
 ARG GOLANG_VERSION=1.26.5
 
 # Tool versions.
-ARG KUBECTL_VERSION=v1.36.1
+ARG KUBECTL_VERSION=v1.36.3
 ARG ZARF_VERSION=v0.76.0
-ARG RKE2_VERSION=v1.33.5+rke2r1
+ARG RKE2_VERSION=v1.36.3+rke2r1
 ARG LOCAL_PATH_PROVISIONER_VERSION=v0.0.30
-ARG ROOK_VERSION=v1.15.8
-ARG CEPH_VERSION=v18.2.4
-ARG CEPHCSI_VERSION=v3.12.2
+ARG ROOK_VERSION=v1.20.6
+ARG CEPH_VERSION=v20.2.4
+
+# CSI image versions - MUST match Rook Helm chart defaults for ROOK_VERSION.
+# To update: Check https://github.com/rook/rook/blob/v1.20.6/deploy/charts/rook-ceph/values.yaml
+# and update these ARGs to match the default image tags in the chart.
+ARG CEPHCSI_VERSION=v3.17.0
+ARG CSI_PROVISIONER_VERSION=v6.2.0
+ARG CSI_ATTACHER_VERSION=v4.12.0
+ARG CSI_RESIZER_VERSION=v2.1.0
+ARG CSI_SNAPSHOTTER_VERSION=v8.5.0
+ARG CSI_NODE_DRIVER_REGISTRAR_VERSION=v2.17.0
+ARG CSI_ADDONS_VERSION=v0.14.0
+
+# Ceph CSI Operator version - MUST match the subchart version in Rook Helm chart.
+# To update: Check https://github.com/rook/rook/blob/v1.20.6/deploy/charts/rook-ceph/Chart.yaml
+# for the ceph-csi-operator dependency version.
+ARG CEPH_CSI_OPERATOR_VERSION=v1.0.4
 
 # ------------------------------------------------------------------------------
 # BUILDER STAGE - TOOLING
@@ -169,21 +184,11 @@ RUN curl --fail --silent --show-error --location --retry 3 \
 # Verify checksums of downloaded artifacts.
 RUN sha256sum -c --ignore-missing "sha256sum-${ARCH}.txt"
 
-# Install skopeo and zstd for pulling and compressing the local-path-provisioner image.
+# Install skopeo and zstd for pulling and compressing images.
 RUN apt-get update \
       && apt-get install -y --no-install-recommends \
         skopeo \
         zstd
-
-# Download local-path-provisioner image for CSI driver.
-# This is saved and loaded during RKE2 bootstrap to provide persistent storage.
-# We use skopeo to pull the image without needing a Docker daemon.
-RUN skopeo copy \
-      docker://rancher/local-path-provisioner:${LOCAL_PATH_PROVISIONER_VERSION} \
-      docker-archive:/tmp/local-path-provisioner.tar:rancher/local-path-provisioner:${LOCAL_PATH_PROVISIONER_VERSION} \
-      && zstd -T0 -19 /tmp/local-path-provisioner.tar \
-      -o "rke2-images-local-path.linux-${ARCH}.tar.zst" \
-      && rm /tmp/local-path-provisioner.tar
 
 RUN cat > VERSION.json <<EOF
 {
@@ -206,108 +211,291 @@ COPY resources/resources/rke2-cilium-config.yaml.tmpl rke2-cilium-config.yaml
 COPY resources/resources/csi-local-path-provisioner.yaml.tmpl csi-local-path-provisioner.yaml
 
 # ------------------------------------------------------------------------------
+# BUILDER STAGES - CONTAINER IMAGE DOWNLOADS (PARALLEL)
+# ------------------------------------------------------------------------------
+
+# The following stages download container images for RKE2's Container Storage Interface (CSI).
+# Each image is downloaded in its own dedicated build stage for maximum build efficiency.
+#
+# ARCHITECTURE RATIONALE:
+#
+# 1. **Parallel Builds:**
+#    Docker BuildKit can build all these stages concurrently, significantly reducing
+#    total build time. Without separate stages, images would download sequentially.
+#
+# 2. **Cache Granularity:**
+#    Each image has independent caching. Updating ROOK_VERSION only invalidates the
+#    Rook operator download—all other images remain cached. With sequential downloads
+#    in a single stage, changing any version would invalidate all subsequent downloads.
+#
+# 3. **Isolated Failures:**
+#    If one image download fails, it doesn't block progress on others. Retry is scoped
+#    to just the failed stage.
+#
+# 4. **Clear Separation:**
+#    Each stage has a single responsibility (download one image), making the Dockerfile
+#    easier to understand and maintain.
+#
+# COMMAND CHAINING RATIONALE (why we use && despite builder stages):
+#
+# We chain commands with && (e.g., `skopeo copy ... && zstd ... && rm ...`) even though
+# these are builder stages where intermediate layers don't affect final image size.
+# This is intentional for several reasons:
+#
+# 1. **Disk Space During Build:**
+#    The uncompressed .tar files can be large (Ceph is ~1.5GB). Chaining ensures they're
+#    removed before the layer is committed, reducing the builder stage's disk footprint.
+#
+# 2. **BuildKit Cache Size:**
+#    BuildKit stores layer caches on disk. Removing intermediate files keeps the cache
+#    smaller and improves build performance on cache-constrained systems.
+#
+# 3. **Consistency:**
+#    Following the same pattern everywhere makes the Dockerfile predictable and easier
+#    to understand—no need to remember which stages chain and which don't.
+#
+# 4. **Layer Count:**
+#    Fewer layers means faster layer export/import when using `docker save`/`docker load`
+#    or pushing to registries (though this is a minor benefit for builder stages).
+
+# ------------------------------------------------------------------------------
+# BUILDER STAGE - LOCAL PATH PROVISIONER IMAGE
+# ------------------------------------------------------------------------------
+
+# Download local-path-provisioner image for CSI driver in a separate stage.
+# This allows Docker to cache this download independently from other images.
+FROM builder-rke2-artifacts AS builder-image-local-path-provisioner
+
+ARG ARCH
+ARG LOCAL_PATH_PROVISIONER_VERSION
+
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
+
+RUN skopeo copy \
+      docker://rancher/local-path-provisioner:${LOCAL_PATH_PROVISIONER_VERSION} \
+      docker-archive:/tmp/local-path-provisioner.tar:rancher/local-path-provisioner:${LOCAL_PATH_PROVISIONER_VERSION} \
+      && zstd -T0 -19 /tmp/local-path-provisioner.tar \
+      -o "csi-images-local-path.linux-${ARCH}-${LOCAL_PATH_PROVISIONER_VERSION}.tar.zst" \
+      && rm /tmp/local-path-provisioner.tar
+
+# ------------------------------------------------------------------------------
+# BUILDER STAGE - ROOK OPERATOR IMAGE
+# ------------------------------------------------------------------------------
+
+FROM builder-rke2-artifacts AS builder-image-rook-ceph
+
+ARG ROOK_VERSION
+
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
+
+RUN skopeo copy \
+      docker://rook/ceph:${ROOK_VERSION} \
+      docker-archive:/tmp/rook-ceph.tar:rook/ceph:${ROOK_VERSION} \
+      && zstd -T0 -19 /tmp/rook-ceph.tar \
+      -o csi-images-rook-ceph.linux-amd64-${ROOK_VERSION}.tar.zst \
+      && rm /tmp/rook-ceph.tar
+
+# ------------------------------------------------------------------------------
+# BUILDER STAGE - CEPH CLUSTER IMAGE
+# ------------------------------------------------------------------------------
+
+FROM builder-rke2-artifacts AS builder-image-ceph
+
+ARG CEPH_VERSION
+
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
+
+RUN skopeo copy \
+      docker://quay.io/ceph/ceph:${CEPH_VERSION} \
+      docker-archive:/tmp/ceph.tar:quay.io/ceph/ceph:${CEPH_VERSION} \
+      && zstd -T0 -19 /tmp/ceph.tar \
+      -o csi-images-ceph.linux-amd64-${CEPH_VERSION}.tar.zst \
+      && rm /tmp/ceph.tar
+
+# ------------------------------------------------------------------------------
+# BUILDER STAGE - CEPH CSI DRIVER IMAGE
+# ------------------------------------------------------------------------------
+
+FROM builder-rke2-artifacts AS builder-image-cephcsi
+
+ARG CEPHCSI_VERSION
+
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
+
+RUN skopeo copy \
+      docker://quay.io/cephcsi/cephcsi:${CEPHCSI_VERSION} \
+      docker-archive:/tmp/cephcsi.tar:quay.io/cephcsi/cephcsi:${CEPHCSI_VERSION} \
+      && zstd -T0 -19 /tmp/cephcsi.tar \
+      -o csi-images-cephcsi.linux-amd64-${CEPHCSI_VERSION}.tar.zst \
+      && rm /tmp/cephcsi.tar
+
+# ------------------------------------------------------------------------------
+# BUILDER STAGE - CSI PROVISIONER IMAGE
+# ------------------------------------------------------------------------------
+
+FROM builder-rke2-artifacts AS builder-image-csi-provisioner
+
+ARG CSI_PROVISIONER_VERSION
+
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
+
+RUN skopeo copy \
+      docker://registry.k8s.io/sig-storage/csi-provisioner:${CSI_PROVISIONER_VERSION} \
+      docker-archive:/tmp/csi-provisioner.tar:registry.k8s.io/sig-storage/csi-provisioner:${CSI_PROVISIONER_VERSION} \
+      && zstd -T0 -19 /tmp/csi-provisioner.tar \
+      -o csi-images-csi-provisioner.linux-amd64-${CSI_PROVISIONER_VERSION}.tar.zst \
+      && rm /tmp/csi-provisioner.tar
+
+# ------------------------------------------------------------------------------
+# BUILDER STAGE - CSI ATTACHER IMAGE
+# ------------------------------------------------------------------------------
+
+FROM builder-rke2-artifacts AS builder-image-csi-attacher
+
+ARG CSI_ATTACHER_VERSION
+
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
+
+RUN skopeo copy \
+      docker://registry.k8s.io/sig-storage/csi-attacher:${CSI_ATTACHER_VERSION} \
+      docker-archive:/tmp/csi-attacher.tar:registry.k8s.io/sig-storage/csi-attacher:${CSI_ATTACHER_VERSION} \
+      && zstd -T0 -19 /tmp/csi-attacher.tar \
+      -o csi-images-csi-attacher.linux-amd64-${CSI_ATTACHER_VERSION}.tar.zst \
+      && rm /tmp/csi-attacher.tar
+
+# ------------------------------------------------------------------------------
+# BUILDER STAGE - CSI RESIZER IMAGE
+# ------------------------------------------------------------------------------
+
+FROM builder-rke2-artifacts AS builder-image-csi-resizer
+
+ARG CSI_RESIZER_VERSION
+
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
+
+RUN skopeo copy \
+      docker://registry.k8s.io/sig-storage/csi-resizer:${CSI_RESIZER_VERSION} \
+      docker-archive:/tmp/csi-resizer.tar:registry.k8s.io/sig-storage/csi-resizer:${CSI_RESIZER_VERSION} \
+      && zstd -T0 -19 /tmp/csi-resizer.tar \
+      -o csi-images-csi-resizer.linux-amd64-${CSI_RESIZER_VERSION}.tar.zst \
+      && rm /tmp/csi-resizer.tar
+
+# ------------------------------------------------------------------------------
+# BUILDER STAGE - CSI SNAPSHOTTER IMAGE
+# ------------------------------------------------------------------------------
+
+FROM builder-rke2-artifacts AS builder-image-csi-snapshotter
+
+ARG CSI_SNAPSHOTTER_VERSION
+
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
+
+RUN skopeo copy \
+      docker://registry.k8s.io/sig-storage/csi-snapshotter:${CSI_SNAPSHOTTER_VERSION} \
+      docker-archive:/tmp/csi-snapshotter.tar:registry.k8s.io/sig-storage/csi-snapshotter:${CSI_SNAPSHOTTER_VERSION} \
+      && zstd -T0 -19 /tmp/csi-snapshotter.tar \
+      -o csi-images-csi-snapshotter.linux-amd64-${CSI_SNAPSHOTTER_VERSION}.tar.zst \
+      && rm /tmp/csi-snapshotter.tar
+
+# ------------------------------------------------------------------------------
+# BUILDER STAGE - CSI NODE DRIVER REGISTRAR IMAGE
+# ------------------------------------------------------------------------------
+
+FROM builder-rke2-artifacts AS builder-image-csi-node-driver-registrar
+
+ARG CSI_NODE_DRIVER_REGISTRAR_VERSION
+
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
+
+RUN skopeo copy \
+      docker://registry.k8s.io/sig-storage/csi-node-driver-registrar:${CSI_NODE_DRIVER_REGISTRAR_VERSION} \
+      docker-archive:/tmp/csi-node-driver-registrar.tar:registry.k8s.io/sig-storage/csi-node-driver-registrar:${CSI_NODE_DRIVER_REGISTRAR_VERSION} \
+      && zstd -T0 -19 /tmp/csi-node-driver-registrar.tar \
+      -o csi-images-csi-node-driver-registrar.linux-amd64-${CSI_NODE_DRIVER_REGISTRAR_VERSION}.tar.zst \
+      && rm /tmp/csi-node-driver-registrar.tar
+
+# ------------------------------------------------------------------------------
+# BUILDER STAGE - CSI ADDONS IMAGE
+# ------------------------------------------------------------------------------
+
+FROM builder-rke2-artifacts AS builder-image-csi-addons
+
+ARG CSI_ADDONS_VERSION
+
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
+
+RUN skopeo copy \
+      docker://quay.io/csiaddons/k8s-sidecar:${CSI_ADDONS_VERSION} \
+      docker-archive:/tmp/csi-addons.tar:quay.io/csiaddons/k8s-sidecar:${CSI_ADDONS_VERSION} \
+      && zstd -T0 -19 /tmp/csi-addons.tar \
+      -o csi-images-csi-addons.linux-amd64-${CSI_ADDONS_VERSION}.tar.zst \
+      && rm /tmp/csi-addons.tar
+
+# ------------------------------------------------------------------------------
+# BUILDER STAGE - CEPH CSI OPERATOR IMAGE
+# ------------------------------------------------------------------------------
+
+FROM builder-rke2-artifacts AS builder-image-ceph-csi-operator
+
+ARG CEPH_CSI_OPERATOR_VERSION
+
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
+
+RUN skopeo copy \
+      docker://quay.io/cephcsi/ceph-csi-operator:${CEPH_CSI_OPERATOR_VERSION} \
+      docker-archive:/tmp/ceph-csi-operator.tar:quay.io/cephcsi/ceph-csi-operator:${CEPH_CSI_OPERATOR_VERSION} \
+      && zstd -T0 -19 /tmp/ceph-csi-operator.tar \
+      -o csi-images-ceph-csi-operator.linux-amd64-${CEPH_CSI_OPERATOR_VERSION}.tar.zst \
+      && rm /tmp/ceph-csi-operator.tar
+
+# ------------------------------------------------------------------------------
 # BUILDER STAGE - RKE2 CEPH ARTIFACTS
 # ------------------------------------------------------------------------------
 
-# Build RKE2 Ceph variant artifacts by inheriting from the standard RKE2 stage
-# and adding Rook-Ceph container images.
+# Build RKE2 Ceph variant artifacts by copying image tarballs from separate build stages.
+# Each image is built in parallel in its own stage, improving build performance and cache granularity.
 FROM builder-rke2-artifacts AS builder-rke2-ceph-artifacts
 
 ARG ARCH
 ARG ROOK_VERSION
 ARG CEPH_VERSION
 ARG CEPHCSI_VERSION
+ARG CSI_PROVISIONER_VERSION
+ARG CSI_ATTACHER_VERSION
+ARG CSI_RESIZER_VERSION
+ARG CSI_SNAPSHOTTER_VERSION
+ARG CSI_NODE_DRIVER_REGISTRAR_VERSION
+ARG CSI_ADDONS_VERSION
+ARG CEPH_CSI_OPERATOR_VERSION
 
-# Enable strict error handling to catch failures immediately during image downloads.
-# Without this, failed downloads or pipeline errors could silently produce incomplete
-# artifacts, causing hard-to-debug runtime failures in deployed clusters.
+# Enable strict error handling.
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 
-# Install Helm for downloading the Rook Helm chart.
-RUN curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash \
-      && helm repo add rook-release https://charts.rook.io/release \
-      && helm repo update
+# Copy all image tarballs from their respective build stages.
+# These were built in parallel, so this is just collecting the results.
+COPY --from=builder-image-rook-ceph /build/resources/rke2/csi-images-rook-ceph.*.tar.zst ./
+COPY --from=builder-image-ceph /build/resources/rke2/csi-images-ceph.*.tar.zst ./
+COPY --from=builder-image-cephcsi /build/resources/rke2/csi-images-cephcsi.*.tar.zst ./
+COPY --from=builder-image-csi-provisioner /build/resources/rke2/csi-images-csi-provisioner.*.tar.zst ./
+COPY --from=builder-image-csi-attacher /build/resources/rke2/csi-images-csi-attacher.*.tar.zst ./
+COPY --from=builder-image-csi-resizer /build/resources/rke2/csi-images-csi-resizer.*.tar.zst ./
+COPY --from=builder-image-csi-snapshotter /build/resources/rke2/csi-images-csi-snapshotter.*.tar.zst ./
+COPY --from=builder-image-csi-node-driver-registrar /build/resources/rke2/csi-images-csi-node-driver-registrar.*.tar.zst ./
+COPY --from=builder-image-csi-addons /build/resources/rke2/csi-images-csi-addons.*.tar.zst ./
+COPY --from=builder-image-ceph-csi-operator /build/resources/rke2/csi-images-ceph-csi-operator.*.tar.zst ./
 
-# Download all Rook-Ceph images as separate OCI tarballs.
-# RKE2 expects OCI layout format (manifest.json + blobs/), not docker-archive format.
-# Each image gets its own OCI directory that is then tarred separately.
+# Download Rook v1.20.6 manifest files directly from GitHub.
+# These are the official Rook quickstart manifests, used unchanged.
+# Deployment order: crds -> common -> csi-operator -> operator -> cluster -> pool -> storageclass
+RUN curl -sL https://raw.githubusercontent.com/rook/rook/${ROOK_VERSION}/deploy/examples/crds.yaml -o rook-crds.yaml \
+      && curl -sL https://raw.githubusercontent.com/rook/rook/${ROOK_VERSION}/deploy/examples/common.yaml -o rook-common.yaml \
+      && curl -sL https://raw.githubusercontent.com/rook/rook/${ROOK_VERSION}/deploy/examples/csi-operator.yaml -o rook-csi-operator.yaml \
+      && curl -sL https://raw.githubusercontent.com/rook/rook/${ROOK_VERSION}/deploy/examples/operator.yaml -o rook-operator.yaml \
+      && curl -sL https://raw.githubusercontent.com/rook/rook/${ROOK_VERSION}/deploy/examples/cluster.yaml -o rook-cluster.yaml \
+      && curl -sL https://raw.githubusercontent.com/rook/rook/${ROOK_VERSION}/deploy/examples/pool.yaml -o rook-pool.yaml
 
-# Download Rook operator image.
-RUN skopeo copy \
-      docker://rook/ceph:${ROOK_VERSION} \
-      oci:/tmp/rook-ceph \
-      && tar -I 'zstd -19 -T0' -cf rke2-images-rook-ceph.linux-amd64.tar.zst -C /tmp/rook-ceph . \
-      && rm -rf /tmp/rook-ceph
-
-# Download Ceph cluster image.
-RUN skopeo copy \
-      docker://quay.io/ceph/ceph:${CEPH_VERSION} \
-      oci:/tmp/ceph \
-      && tar -I 'zstd -19 -T0' -cf rke2-images-ceph.linux-amd64.tar.zst -C /tmp/ceph . \
-      && rm -rf /tmp/ceph
-
-# Download Ceph CSI driver image.
-RUN skopeo copy \
-      docker://quay.io/cephcsi/cephcsi:${CEPHCSI_VERSION} \
-      oci:/tmp/cephcsi \
-      && tar -I 'zstd -19 -T0' -cf rke2-images-cephcsi.linux-amd64.tar.zst -C /tmp/cephcsi . \
-      && rm -rf /tmp/cephcsi
-
-# Download CSI sidecar images (using latest stable versions).
-# These are required for CSI driver operation.
-RUN skopeo copy \
-      docker://registry.k8s.io/sig-storage/csi-provisioner:v5.2.0 \
-      oci:/tmp/csi-provisioner \
-      && tar -I 'zstd -19 -T0' -cf rke2-images-csi-provisioner.linux-amd64.tar.zst -C /tmp/csi-provisioner . \
-      && rm -rf /tmp/csi-provisioner
-
-RUN skopeo copy \
-      docker://registry.k8s.io/sig-storage/csi-attacher:v4.8.1 \
-      oci:/tmp/csi-attacher \
-      && tar -I 'zstd -19 -T0' -cf rke2-images-csi-attacher.linux-amd64.tar.zst -C /tmp/csi-attacher . \
-      && rm -rf /tmp/csi-attacher
-
-RUN skopeo copy \
-      docker://registry.k8s.io/sig-storage/csi-resizer:v1.13.2 \
-      oci:/tmp/csi-resizer \
-      && tar -I 'zstd -19 -T0' -cf rke2-images-csi-resizer.linux-amd64.tar.zst -C /tmp/csi-resizer . \
-      && rm -rf /tmp/csi-resizer
-
-RUN skopeo copy \
-      docker://registry.k8s.io/sig-storage/csi-snapshotter:v8.2.1 \
-      oci:/tmp/csi-snapshotter \
-      && tar -I 'zstd -19 -T0' -cf rke2-images-csi-snapshotter.linux-amd64.tar.zst -C /tmp/csi-snapshotter . \
-      && rm -rf /tmp/csi-snapshotter
-
-RUN skopeo copy \
-      docker://registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.13.0 \
-      oci:/tmp/csi-node-driver-registrar \
-      && tar -I 'zstd -19 -T0' -cf rke2-images-csi-node-driver-registrar.linux-amd64.tar.zst -C /tmp/csi-node-driver-registrar . \
-      && rm -rf /tmp/csi-node-driver-registrar
-
-# Download Rook Helm chart for air-gapped deployment.
-# Base64-encode it and inject into the HelmChart manifest as chartContent.
-# This is required because RKE2's helm-install pod cannot access host filesystem paths.
-RUN helm fetch rook-release/rook-ceph \
-      --version ${ROOK_VERSION} \
-      --destination /tmp
-
-# Copy the HelmChart manifest template and inject the base64-encoded chart.
-# The __CHART_CONTENT_BASE64__ placeholder will be replaced with the actual chart content.
-COPY resources/resources/csi-rook-ceph-chart.yaml.tmpl /tmp/csi-rook-ceph-chart.yaml.tmpl
-RUN CHART_CONTENT=$(base64 -w 0 /tmp/rook-ceph-${ROOK_VERSION}.tgz) \
-      && sed "s|__CHART_CONTENT_BASE64__|${CHART_CONTENT}|" \
-            /tmp/csi-rook-ceph-chart.yaml.tmpl > csi-rook-ceph-chart.yaml \
-      && rm /tmp/csi-rook-ceph-chart.yaml.tmpl /tmp/rook-ceph-${ROOK_VERSION}.tgz
-
-# Remove the local-path provisioner image tarball as we're using Ceph instead.
-RUN rm -f rke2-images-local-path.linux-*.tar.zst
-
-# Copy CephCluster CR (this is applied after the operator is deployed).
-# Order matters (alphabetical):
-#   1. csi-rook-ceph-chart.yaml - HelmChart CRD deploys operator/CRDs/RBAC (with embedded chart)
-#   2. csi-rook-ceph-cluster.yaml - CephCluster/Pool/StorageClass
-COPY resources/resources/csi-rook-ceph-cluster.yaml.tmpl csi-rook-ceph-cluster.yaml
+# Copy custom StorageClass (based on official example, modified to be default).
+COPY resources/resources/rook-storageclass.yaml ./
 
 # Remove the local-path CSI manifest.
 RUN rm -f csi-local-path-provisioner.yaml
@@ -320,7 +508,12 @@ RUN cat > VERSION.json <<EOF
     "rke2": "${RKE2_VERSION}",
     "rook": "${ROOK_VERSION}",
     "ceph": "${CEPH_VERSION}",
-    "cephcsi": "${CEPHCSI_VERSION}"
+    "cephcsi": "${CEPHCSI_VERSION}",
+    "csi_provisioner": "${CSI_PROVISIONER_VERSION}",
+    "csi_attacher": "${CSI_ATTACHER_VERSION}",
+    "csi_resizer": "${CSI_RESIZER_VERSION}",
+    "csi_snapshotter": "${CSI_SNAPSHOTTER_VERSION}",
+    "csi_node_driver_registrar": "${CSI_NODE_DRIVER_REGISTRAR_VERSION}"
   }
 }
 EOF
