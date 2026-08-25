@@ -201,14 +201,14 @@ RUN cat > VERSION.json <<EOF
 EOF
 
 # Copy the RKE2 configuration template.
-COPY resources/resources/rke2-config.yaml.tmpl config.yaml.template
+COPY resources/resources/rke2/rke2-config.yaml .
 
 # Copy the Cilium configuration for kube-proxy replacement.
 # This configures Cilium to use localhost for API access, avoiding firewall issues.
-COPY resources/resources/rke2-cilium-config.yaml.tmpl rke2-cilium-config.yaml
+COPY resources/resources/rke2/rke2-cilium-config.yaml .
 
 # Copy the CSI manifest so it's included in the extracted RKE2 artifacts.
-COPY resources/resources/csi-local-path-provisioner.yaml.tmpl csi-local-path-provisioner.yaml
+COPY resources/resources/rke2/csi-local-path-provisioner.yaml csi/manifests/.
 
 # ------------------------------------------------------------------------------
 # BUILDER STAGES - CONTAINER IMAGE DOWNLOADS (PARALLEL)
@@ -473,32 +473,33 @@ SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 
 # Copy all image tarballs from their respective build stages.
 # These were built in parallel, so this is just collecting the results.
-COPY --from=builder-image-rook-ceph /build/resources/rke2/csi-images-rook-ceph.*.tar.zst ./
-COPY --from=builder-image-ceph /build/resources/rke2/csi-images-ceph.*.tar.zst ./
-COPY --from=builder-image-cephcsi /build/resources/rke2/csi-images-cephcsi.*.tar.zst ./
-COPY --from=builder-image-csi-provisioner /build/resources/rke2/csi-images-csi-provisioner.*.tar.zst ./
-COPY --from=builder-image-csi-attacher /build/resources/rke2/csi-images-csi-attacher.*.tar.zst ./
-COPY --from=builder-image-csi-resizer /build/resources/rke2/csi-images-csi-resizer.*.tar.zst ./
-COPY --from=builder-image-csi-snapshotter /build/resources/rke2/csi-images-csi-snapshotter.*.tar.zst ./
-COPY --from=builder-image-csi-node-driver-registrar /build/resources/rke2/csi-images-csi-node-driver-registrar.*.tar.zst ./
-COPY --from=builder-image-csi-addons /build/resources/rke2/csi-images-csi-addons.*.tar.zst ./
-COPY --from=builder-image-ceph-csi-operator /build/resources/rke2/csi-images-ceph-csi-operator.*.tar.zst ./
+COPY --from=builder-image-rook-ceph /build/resources/rke2/csi-images-rook-ceph.*.tar.zst csi/images/
+COPY --from=builder-image-ceph /build/resources/rke2/csi-images-ceph.*.tar.zst csi/images/
+COPY --from=builder-image-cephcsi /build/resources/rke2/csi-images-cephcsi.*.tar.zst csi/images/
+COPY --from=builder-image-csi-provisioner /build/resources/rke2/csi-images-csi-provisioner.*.tar.zst csi/images/
+COPY --from=builder-image-csi-attacher /build/resources/rke2/csi-images-csi-attacher.*.tar.zst csi/images/
+COPY --from=builder-image-csi-resizer /build/resources/rke2/csi-images-csi-resizer.*.tar.zst csi/images/
+COPY --from=builder-image-csi-snapshotter /build/resources/rke2/csi-images-csi-snapshotter.*.tar.zst csi/images/
+COPY --from=builder-image-csi-node-driver-registrar /build/resources/rke2/csi-images-csi-node-driver-registrar.*.tar.zst csi/images/
+COPY --from=builder-image-csi-addons /build/resources/rke2/csi-images-csi-addons.*.tar.zst csi/images/
+COPY --from=builder-image-ceph-csi-operator /build/resources/rke2/csi-images-ceph-csi-operator.*.tar.zst csi/images/
 
 # Download Rook v1.20.6 manifest files directly from GitHub.
 # These are the official Rook quickstart manifests, used unchanged.
 # Deployment order: crds -> common -> csi-operator -> operator -> cluster -> pool -> storageclass
-RUN curl -sL https://raw.githubusercontent.com/rook/rook/${ROOK_VERSION}/deploy/examples/crds.yaml -o rook-crds.yaml \
-      && curl -sL https://raw.githubusercontent.com/rook/rook/${ROOK_VERSION}/deploy/examples/common.yaml -o rook-common.yaml \
-      && curl -sL https://raw.githubusercontent.com/rook/rook/${ROOK_VERSION}/deploy/examples/csi-operator.yaml -o rook-csi-operator.yaml \
-      && curl -sL https://raw.githubusercontent.com/rook/rook/${ROOK_VERSION}/deploy/examples/operator.yaml -o rook-operator.yaml \
-      && curl -sL https://raw.githubusercontent.com/rook/rook/${ROOK_VERSION}/deploy/examples/cluster.yaml -o rook-cluster.yaml \
-      && curl -sL https://raw.githubusercontent.com/rook/rook/${ROOK_VERSION}/deploy/examples/pool.yaml -o rook-pool.yaml
+RUN mkdir -p csi/manifests/
+RUN curl -sL https://raw.githubusercontent.com/rook/rook/${ROOK_VERSION}/deploy/examples/crds.yaml -o csi/manifests/rook-crds.yaml \
+      && curl -sL https://raw.githubusercontent.com/rook/rook/${ROOK_VERSION}/deploy/examples/common.yaml -o csi/manifests/rook-common.yaml \
+      && curl -sL https://raw.githubusercontent.com/rook/rook/${ROOK_VERSION}/deploy/examples/csi-operator.yaml -o csi/manifests/rook-csi-operator.yaml \
+      && curl -sL https://raw.githubusercontent.com/rook/rook/${ROOK_VERSION}/deploy/examples/operator.yaml -o csi/manifests/rook-operator.yaml \
+      && curl -sL https://raw.githubusercontent.com/rook/rook/${ROOK_VERSION}/deploy/examples/cluster.yaml -o csi/manifests/rook-cluster.yaml \
+      && curl -sL https://raw.githubusercontent.com/rook/rook/${ROOK_VERSION}/deploy/examples/pool.yaml -o csi/manifests/rook-pool.yaml
 
 # Copy custom StorageClass (based on official example, modified to be default).
-COPY resources/resources/rook-storageclass.yaml ./
+COPY resources/resources/rook-storageclass.yaml csi/manifests/
 
 # Remove the local-path CSI manifest.
-RUN rm -f csi-local-path-provisioner.yaml
+RUN rm -f csi/manifests/csi-local-path-provisioner.yaml
 
 # Update VERSION.json to reflect Ceph variant.
 RUN cat > VERSION.json <<EOF
@@ -725,12 +726,16 @@ LABEL org.label-schema.name="ironbark" \
 # Build with: docker build --target ironbark-rke2 ...
 FROM ironbark-base AS ironbark-rke2
 
+ARG ARCH
+ARG LOCAL_PATH_PROVISIONER_VERSION
+
 # Set environment variable to indicate RKE2 variant.
 ENV IRONBARK_RKE2_AVAILABLE=true
 
 # Copy RKE2 artifacts from the RKE2 builder stage to /app/resources/rke2.
 # This path is consistent with other resources and used by the artifact download API.
 COPY --from=builder-rke2-artifacts /build/resources/rke2/ resources/rke2/
+COPY --from=builder-image-local-path-provisioner /build/resources/rke2/csi-images-local-path.linux-${ARCH}-${LOCAL_PATH_PROVISIONER_VERSION}.tar.zst resources/rke2/csi/images/
 
 LABEL org.label-schema.name="ironbark-rke2" \
       org.label-schema.description="Kubernetes management using the brightSPARK Labs opinionated deployment pattern (RKE2)" \

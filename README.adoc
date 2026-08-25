@@ -715,7 +715,7 @@ cd rke2/
 ----
 sudo mkdir -p /var/lib/rancher/rke2/agent/images
 sudo cp rke2-images-*.tar.zst /var/lib/rancher/rke2/agent/images/
-sudo cp csi-images-*.tar.zst /var/lib/rancher/rke2/agent/images/
+sudo cp csi/images/*.tar.zst /var/lib/rancher/rke2/agent/images/
 
 # Improve startup time by only importing tarballs that have changes since they were last imported.
 sudo touch /var/lib/rancher/rke2/agent/images/.cache.json
@@ -729,7 +729,7 @@ CSI driver installation is covered in a separate section after the cluster is ru
 
 . Make any desired changes to the configuration files:
 [horizontal]
-RKE2:: `config.yaml.template`
+RKE2:: `rke-config.yaml`
 CNI:: `rke2-cilium-config.yaml`
 
 . Deploy configuration files:
@@ -737,7 +737,7 @@ CNI:: `rke2-cilium-config.yaml`
 [source,bash]
 ----
 sudo mkdir -p /etc/rancher/rke2
-sudo cp config.yaml.template /etc/rancher/rke2/config.yaml
+sudo cp rke2-config.yaml /etc/rancher/rke2/config.yaml
 
 # Copy Cilium config to RKE2 manifests directory.
 sudo mkdir -p /var/lib/rancher/rke2/server/manifests
@@ -935,7 +935,7 @@ IMPORTANT: Only install the CSI driver AFTER the RKE2 cluster is fully operation
 
 [source,bash]
 ----
-sudo cp csi-local-path-provisioner.yaml /var/lib/rancher/rke2/server/manifests/
+sudo cp csi/manifests/csi-local-path-provisioner.yaml /var/lib/rancher/rke2/server/manifests/
 sudo systemctl restart rke2-server
 ----
 
@@ -958,10 +958,10 @@ Deploy the Rook operator and CSI operator using the official Rook manifests:
 [source,bash]
 ----
 # Copy Rook manifest files (official manifests, unchanged).
-sudo cp rook-crds.yaml /var/lib/rancher/rke2/server/manifests/
-sudo cp rook-common.yaml /var/lib/rancher/rke2/server/manifests/
-sudo cp rook-csi-operator.yaml /var/lib/rancher/rke2/server/manifests/
-sudo cp rook-operator.yaml /var/lib/rancher/rke2/server/manifests/
+sudo cp csi/manifests/rook-crds.yaml /var/lib/rancher/rke2/server/manifests/
+sudo cp csi/manifests/rook-common.yaml /var/lib/rancher/rke2/server/manifests/
+sudo cp csi/manifests/rook-csi-operator.yaml /var/lib/rancher/rke2/server/manifests/
+sudo cp csi/manifests/rook-operator.yaml /var/lib/rancher/rke2/server/manifests/
 sudo systemctl restart rke2-server
 
 # Wait for Rook operator to deploy (takes ~2 minutes).
@@ -980,9 +980,9 @@ kubectl get pods -n rook-ceph -l control-plane=ceph-csi-op-controller-manager
 +
 --
 [horizontal]
-CephCluster:: `rook-cluster.yaml`
-CephBlockPool:: `rook-pool.yaml`
-StorageClass:: `rook-storageclass.yaml`
+CephCluster:: `csi/manifests/rook-cluster.yaml`
+CephBlockPool:: `csi/manifests/rook-pool.yaml`
+StorageClass:: `csi/manifests/rook-storageclass.yaml`
 --
 +
 [IMPORTANT]
@@ -1013,9 +1013,9 @@ TIP: If *testing* on a single-node cluster see <<Testing Ceph on a single-node c
 . Deploy configuration files:
 [source,bash]
 ----
-sudo cp rook-cluster.yaml /var/lib/rancher/rke2/server/manifests/
-sudo cp rook-pool.yaml /var/lib/rancher/rke2/server/manifests/
-sudo cp rook-storageclass.yaml /var/lib/rancher/rke2/server/manifests/
+sudo cp csi/manifests/rook-cluster.yaml /var/lib/rancher/rke2/server/manifests/
+sudo cp csi/manifests/rook-pool.yaml /var/lib/rancher/rke2/server/manifests/
+sudo cp csi/manifests/rook-storageclass.yaml /var/lib/rancher/rke2/server/manifests/
 sudo systemctl restart rke2-server
 ----
 
@@ -1110,7 +1110,7 @@ Edit `rook-cluster.yaml`:
 
 [source,bash]
 ----
-vi rook-cluster.yaml
+vi csi/manifests/rook-cluster.yaml
 ----
 
 Make the following changes:
@@ -1137,7 +1137,7 @@ Edit `rook-pool.yaml`:
 
 [source,bash]
 ----
-vi rook-pool.yaml
+vi csi/manifests/rook-pool.yaml
 ----
 
 Make the following changes:
@@ -1162,8 +1162,9 @@ After making these changes, deploy the modified cluster manifest:
 
 [source,bash]
 ----
-sudo cp rook-cluster.yaml /var/lib/rancher/rke2/server/manifests/
-sudo cp rook-pool.yaml /var/lib/rancher/rke2/server/manifests/
+sudo cp csi/manifests/rook-cluster.yaml /var/lib/rancher/rke2/server/manifests/
+sudo cp csi/manifests/rook-pool.yaml /var/lib/rancher/rke2/server/manifests/
+sudo cp csi/manifests/rook-storageclass.yaml /var/lib/rancher/rke2/server/manifests/
 sudo systemctl restart rke2-server
 
 # Wait for CephCluster to be created.
