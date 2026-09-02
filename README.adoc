@@ -716,9 +716,6 @@ cd rke2/
 sudo mkdir -p /var/lib/rancher/rke2/agent/images
 sudo cp rke2-images-*.tar.zst /var/lib/rancher/rke2/agent/images/
 sudo cp csi/images/*.tar.zst /var/lib/rancher/rke2/agent/images/
-
-# Improve startup time by only importing tarballs that have changes since they were last imported.
-sudo touch /var/lib/rancher/rke2/agent/images/.cache.json
 ----
 
 === Configure RKE2
@@ -788,44 +785,38 @@ kubectl get pods -A
 IMPORTANT: For Rook-Ceph CSI, you MUST add additional nodes BEFORE deploying the CSI driver.
 The default CephBlockPool requires 3 replicas across 3 different hosts.
 
-==== Get Cluster Join Token
+==== Add Additional Server Nodes (High Availability)
 
-On the first server node, retrieve the token that additional nodes will use to join:
+To add more control-plane nodes for HA (highly available cluster), repeat these steps on each additional server node.
 
+. On the *first server* node:
+.. Retrieve the token that additional nodes will use to join:
++
 [source,bash]
 ----
 # Get the join token.
 sudo cat /var/lib/rancher/rke2/server/node-token
 ----
-
-Save this token - you'll need it on each additional node.
-
-==== Add Additional Server Nodes (High Availability)
-
-To add more control-plane nodes for HA (highly available cluster), repeat these steps on each additional server node.
-
++
+IMPORTANT: Save this token - you'll need it on each additional node.
 . On the first server, copy artifacts to the new server node:
 +
 [source,bash]
 ----
-# Copy RKE2 installation artifacts.
-scp install.sh rke2-images-*.tar.zst rke2.linux-amd64.tar.gz sha256sum-amd64.txt \
+# Copy RKE2 artifacts.
+scp -r ~/rke2-setup/rke2 \
   <NEW_SERVER_USER>@<NEW_SERVER_IP>:/tmp/
-
-# Copy Cilium configuration.
-scp rke2-cilium-config.yaml <NEW_SERVER_USER>@<NEW_SERVER_IP>:/tmp/
 ----
-
-. On the new server node, extract and copy artifacts:
+.. On the new server node, extract and copy artifacts:
 +
 [source,bash]
 ----
-cd /tmp
+cd /tmp/rke2/
 
 # Copy container image tarballs.
 sudo mkdir -p /var/lib/rancher/rke2/agent/images
 sudo cp rke2-images-*.tar.zst /var/lib/rancher/rke2/agent/images/
-sudo touch /var/lib/rancher/rke2/agent/images/.cache.json
+sudo cp csi/images/*.tar.zst /var/lib/rancher/rke2/agent/images/
 ----
 
 . Configure RKE2 to join the existing cluster:
@@ -833,7 +824,12 @@ sudo touch /var/lib/rancher/rke2/agent/images/.cache.json
 [source,bash]
 ----
 # Create RKE2 config to join as a server.
-# Replace <FIRST_SERVER_IP>, <TOKEN>, and <THIS_SERVER_IP> with actual values.
+# Replace the following with actual values.
+#
+# 1. <FIRST_SERVER_IP>
+# 2. <TOKEN_FROM_FIRST_SERVER>
+# 3. <THIS_SERVER_IP>
+
 sudo mkdir -p /etc/rancher/rke2
 sudo bash -c 'cat > /etc/rancher/rke2/config.yaml <<EOF
 server: https://<FIRST_SERVER_IP>:9345
@@ -845,7 +841,7 @@ EOF'
 
 # Copy Cilium config.
 sudo mkdir -p /var/lib/rancher/rke2/server/manifests
-sudo cp /tmp/rke2-cilium-config.yaml /var/lib/rancher/rke2/server/manifests/
+sudo cp rke2-cilium-config.yaml /var/lib/rancher/rke2/server/manifests/
 ----
 
 . Install and start RKE2 server:
@@ -853,8 +849,8 @@ sudo cp /tmp/rke2-cilium-config.yaml /var/lib/rancher/rke2/server/manifests/
 [source,bash]
 ----
 sudo INSTALL_RKE2_TYPE=server \
-  INSTALL_RKE2_ARTIFACT_PATH=/tmp \
-  sh /tmp/install.sh
+  INSTALL_RKE2_ARTIFACT_PATH=$(pwd) \
+  sh install.sh
 
 sudo systemctl enable rke2-server.service
 sudo systemctl start rke2-server.service
@@ -871,7 +867,17 @@ kubectl get nodes
 
 To add worker-only nodes (agents that run workloads but not control-plane components), repeat these steps on each worker node.
 
-. On the first server, copy artifacts to the worker node:
+. On the *first server* node:
+.. Retrieve the token that additional nodes will use to join:
++
+[source,bash]
+----
+# Get the join token.
+sudo cat /var/lib/rancher/rke2/server/agent-token
+----
++
+IMPORTANT: Save this token - you'll need it on each additional node.
+.. Copy artifacts to the worker node:
 +
 [source,bash]
 ----
@@ -897,7 +903,11 @@ sudo touch /var/lib/rancher/rke2/agent/images/.cache.json
 [source,bash]
 ----
 # Create RKE2 config to join as an agent.
-# Replace <FIRST_SERVER_IP> and <TOKEN> with actual values.
+# Replace the following with actual values.
+#
+# 1. <FIRST_SERVER_IP>
+# 2. <TOKEN_FROM_FIRST_SERVER>
+
 sudo mkdir -p /etc/rancher/rke2
 sudo bash -c 'cat > /etc/rancher/rke2/config.yaml <<EOF
 server: https://<FIRST_SERVER_IP>:9345
@@ -925,6 +935,17 @@ sudo systemctl start rke2-agent.service
 [source,bash]
 ----
 kubectl get nodes
+----
+
+=== Remove image tarballs
+
+Once RKE2 is running, all image tarballs have been successfully loaded into the container runtime.
+The tarballs can be removed to save space and improve startup time.
+Run the followng on each RKE2 node:
+
+[source,bash]
+----
+sudo rm -rf /var/lib/rancher/rke2/agent/images/*tar.zst
 ----
 
 === Install CSI Driver (After Cluster is Running)
