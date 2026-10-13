@@ -639,6 +639,16 @@ Configuration::::
 The Ceph cluster auto-discovers and uses all available raw devices.
 Customise via CephCluster CR in deployed manifest if needed.
 
+[IMPORTANT]
+--
+If SELinux is enabled in your environment, ensure you read the https://docs.rke2.io/security/selinux[RKE2 SELinux instructions].
+
+For air-gapped environments, the `rke2-selinux` RPM can be downloaded from the https://github.com/rancher/rke2-selinux/releases[Rancher Github site].
+The policy is not tied to a particular RKE2 minor version — a single rke2-selinux release covers all supported RKE2 versions on that distribution.
+
+The RPM must be installed *BEFORE* installing RKE2.
+--
+
 === Configure firewall for pod network access
 
 The firewall must be configured to allow pods to communicate with the host.
@@ -782,6 +792,14 @@ Verify cluster is operational (all system pods Running):
 kubectl get nodes
 kubectl get pods -A
 ----
+
+[IMPORTANT]
+--
+One of the `cilium-operator` pods will be stuck in a `Pending` state.
+
+This is *expected behaviour*.
+The operator will enter the running state once an additional node is added to the RKE2 cluster.
+--
 
 === Adding Additional Nodes (For Multi-Node Clusters)
 
