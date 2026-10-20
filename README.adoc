@@ -957,6 +957,11 @@ sudo cp csi/manifests/csi-local-path-provisioner.yaml /var/lib/rancher/rke2/serv
 sudo systemctl restart rke2-server
 ----
 
+The local-path provisioner utilises storage under `/opt/local-path-provisioner`.
+
+The filesystem at that location must be `ext4` or `xfs` formatted.
+Best practice is to mount a dedicated partition to this location.
+
 ==== Option 2: Use Ceph variant
 
 [IMPORTANT]
