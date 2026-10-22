@@ -639,6 +639,16 @@ Configuration::::
 The Ceph cluster auto-discovers and uses all available raw devices.
 Customise via CephCluster CR in deployed manifest if needed.
 
+[IMPORTANT]
+--
+If SELinux is enabled in your environment, ensure you read the https://docs.rke2.io/security/selinux[RKE2 SELinux instructions].
+
+For air-gapped environments, the `rke2-selinux` RPM can be downloaded from the https://github.com/rancher/rke2-selinux/releases[Rancher Github site].
+The policy is not tied to a particular RKE2 minor version — a single rke2-selinux release covers all supported RKE2 versions on that distribution.
+
+The RPM must be installed *BEFORE* installing RKE2.
+--
+
 === Configure firewall for pod network access
 
 The firewall must be configured to allow pods to communicate with the host.
@@ -782,6 +792,14 @@ Verify cluster is operational (all system pods Running):
 kubectl get nodes
 kubectl get pods -A
 ----
+
+[IMPORTANT]
+--
+One of the `cilium-operator` pods will be stuck in a `Pending` state.
+
+This is *expected behaviour*.
+The operator will enter the running state once an additional node is added to the RKE2 cluster.
+--
 
 === Adding Additional Nodes (For Multi-Node Clusters)
 
@@ -933,10 +951,69 @@ IMPORTANT: Only install the CSI driver AFTER the RKE2 cluster is fully operation
 
 ==== Option 1: Use local-path variant
 
+The local-path provisioner utilises storage under `/opt/local-path-provisioner`.
+
+The filesystem at that location must be `ext4` or `xfs` formatted.
+Best practice is to mount a dedicated partition to this location.
+
+===== Deploy CSI driver
+
 [source,bash]
 ----
 sudo cp csi/manifests/csi-local-path-provisioner.yaml /var/lib/rancher/rke2/server/manifests/
 sudo systemctl restart rke2-server
+
+# Verify default StorageClass is created.
+kubectl get storageclass
+----
+
+===== Verify CSI driver
+
+[source,bash]
+----
+# Optional: Test PVC creation.
+cat <<EOF > test-pvc.yaml
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: test-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-pvc
+spec:
+  containers:
+    - name: busybox
+      image: docker.io/library/busybox:1.38.0
+      command:
+        - sleep
+        - "3600"
+      volumeMounts:
+        - name: data
+          mountPath: /data
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: test-pvc
+EOF
+
+kubectl apply -f test-pvc.yaml
+
+# Verify PVC is bound.
+kubectl get pvc test-pvc
+
+# Clean up test PVC.
+kubectl delete pod test-pvc
+kubectl delete pvc test-pvc
+kubectl delete pv <pv-name>
 ----
 
 ==== Option 2: Use Ceph variant
@@ -1034,7 +1111,7 @@ kubectl wait --for=jsonpath='{.status.phase}'=Ready cephblockpool -n rook-ceph r
 kubectl get storageclass
 ----
 
-==== Verify CSI driver
+===== Verify CSI driver
 
 Verify CSI driver is deployed and working:
 
@@ -1059,6 +1136,7 @@ kubectl get pvc test-pvc
 
 # Clean up test PVC.
 kubectl delete pvc test-pvc
+kubectl delete pv <pv-name>
 ----
 
 === Deploy Ironbark

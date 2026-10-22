@@ -8,9 +8,9 @@
  # Based on: https://github.com/rancher/local-path-provisioner/tree/v0.0.30
  #
  # Modifications from upstream:
- # - volumeBindingMode: Immediate (instead of WaitForFirstConsumer)
- # - reclaimPolicy: Retain (instead of Delete)
- # - Added storageclass.kubernetes.io/is-default-class: "true" annotation
+ # - reclaimPolicy: Retain (instead of `Delete`) - for safety, make deletion explicity action.
+ # - Added storageclass.kubernetes.io/is-default-class: "true" annotation - since there is only one CSI.
+ # - Explicitly stated helper-pod busybox (instead of `latest`) - for reproducible builds.
  #
  # Maintained by brightSPARK Labs.
  # www.brightsparklabs.com
@@ -138,7 +138,7 @@ metadata:
   annotations:
     storageclass.kubernetes.io/is-default-class: "true"
 provisioner: rancher.io/local-path
-volumeBindingMode: Immediate
+volumeBindingMode: WaitForFirstConsumer
 reclaimPolicy: Retain
 
 ---
@@ -178,5 +178,5 @@ data:
           effect: NoSchedule
       containers:
       - name: helper-pod
-        image: busybox
+        image: docker.io/library/busybox:1.38.0
         imagePullPolicy: IfNotPresent
