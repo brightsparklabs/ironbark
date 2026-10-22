@@ -25,6 +25,9 @@ ARG KUBECTL_VERSION=v1.36.3
 ARG ZARF_VERSION=v0.76.0
 ARG RKE2_VERSION=v1.36.3+rke2r1
 ARG LOCAL_PATH_PROVISIONER_VERSION=v0.0.30
+# Busybox version for local-path-provisioner helper pods.
+# This needs to be aligned with: resources/resources/rke2/csi-local-path-provisioner.yaml
+ARG BUSYBOX_VERSION=1.38.0
 ARG ROOK_VERSION=v1.20.6
 ARG CEPH_VERSION=v20.2.4
 
@@ -131,6 +134,7 @@ FROM ${UBUNTU_IMAGE} AS builder-rke2-artifacts
 ARG ARCH
 ARG RKE2_VERSION
 ARG LOCAL_PATH_PROVISIONER_VERSION
+ARG BUSYBOX_VERSION
 
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 
@@ -195,7 +199,8 @@ RUN cat > VERSION.json <<EOF
   "ironbark": "rke2-variant",
   "tools": {
     "rke2": "${RKE2_VERSION}",
-    "local-path-provisioner": "${LOCAL_PATH_PROVISIONER_VERSION}"
+    "local-path-provisioner": "${LOCAL_PATH_PROVISIONER_VERSION}",
+    "busybox": "${BUSYBOX_VERSION}"
   }
 }
 EOF
@@ -277,6 +282,26 @@ RUN skopeo copy \
       && zstd -T0 -19 /tmp/local-path-provisioner.tar \
       -o "csi-images-local-path.linux-${ARCH}-${LOCAL_PATH_PROVISIONER_VERSION}.tar.zst" \
       && rm /tmp/local-path-provisioner.tar
+
+# ------------------------------------------------------------------------------
+# BUILDER STAGE - BUSYBOX IMAGE
+# ------------------------------------------------------------------------------
+
+# Download busybox image for local-path-provisioner helper pods.
+# This allows Docker to cache this download independently from other images.
+FROM builder-rke2-artifacts AS builder-image-busybox
+
+ARG ARCH
+ARG BUSYBOX_VERSION
+
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
+
+RUN skopeo copy \
+      docker://busybox:${BUSYBOX_VERSION} \
+      docker-archive:/tmp/busybox.tar:docker.io/library/busybox:${BUSYBOX_VERSION} \
+      && zstd -T0 -19 /tmp/busybox.tar \
+      -o "csi-images-busybox.linux-${ARCH}-${BUSYBOX_VERSION}.tar.zst" \
+      && rm /tmp/busybox.tar
 
 # ------------------------------------------------------------------------------
 # BUILDER STAGE - ROOK OPERATOR IMAGE
@@ -641,7 +666,8 @@ RUN mkdir -p /app && cat > /app/VERSION.json <<EOF
     "kubectl": "${KUBECTL_VERSION}",
     "zarf": "${ZARF_VERSION}",
     "rke2": "${RKE2_VERSION}",
-    "local-path-provisioner": "${LOCAL_PATH_PROVISIONER_VERSION}"
+    "local-path-provisioner": "${LOCAL_PATH_PROVISIONER_VERSION}",
+    "busybox": "${BUSYBOX_VERSION}"
   }
 }
 EOF
@@ -728,6 +754,7 @@ FROM ironbark-base AS ironbark-rke2
 
 ARG ARCH
 ARG LOCAL_PATH_PROVISIONER_VERSION
+ARG BUSYBOX_VERSION
 
 # Set environment variable to indicate RKE2 variant.
 ENV IRONBARK_RKE2_AVAILABLE=true
@@ -736,6 +763,7 @@ ENV IRONBARK_RKE2_AVAILABLE=true
 # This path is consistent with other resources and used by the artifact download API.
 COPY --from=builder-rke2-artifacts /build/resources/rke2/ resources/rke2/
 COPY --from=builder-image-local-path-provisioner /build/resources/rke2/csi-images-local-path.linux-${ARCH}-${LOCAL_PATH_PROVISIONER_VERSION}.tar.zst resources/rke2/csi/images/
+COPY --from=builder-image-busybox /build/resources/rke2/csi-images-busybox.linux-${ARCH}-${BUSYBOX_VERSION}.tar.zst resources/rke2/csi/images/
 
 LABEL org.label-schema.name="ironbark-rke2" \
       org.label-schema.description="Kubernetes management using the brightSPARK Labs opinionated deployment pattern (RKE2)" \

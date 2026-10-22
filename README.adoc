@@ -951,16 +951,70 @@ IMPORTANT: Only install the CSI driver AFTER the RKE2 cluster is fully operation
 
 ==== Option 1: Use local-path variant
 
-[source,bash]
-----
-sudo cp csi/manifests/csi-local-path-provisioner.yaml /var/lib/rancher/rke2/server/manifests/
-sudo systemctl restart rke2-server
-----
-
 The local-path provisioner utilises storage under `/opt/local-path-provisioner`.
 
 The filesystem at that location must be `ext4` or `xfs` formatted.
 Best practice is to mount a dedicated partition to this location.
+
+===== Deploy CSI driver
+
+[source,bash]
+----
+sudo cp csi/manifests/csi-local-path-provisioner.yaml /var/lib/rancher/rke2/server/manifests/
+sudo systemctl restart rke2-server
+
+# Verify default StorageClass is created.
+kubectl get storageclass
+----
+
+===== Verify CSI driver
+
+[source,bash]
+----
+# Optional: Test PVC creation.
+cat <<EOF > test-pvc.yaml
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: test-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-pvc
+spec:
+  containers:
+    - name: busybox
+      image: docker.io/library/busybox:1.38.0
+      command:
+        - sleep
+        - "3600"
+      volumeMounts:
+        - name: data
+          mountPath: /data
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: test-pvc
+EOF
+
+kubectl apply -f test-pvc.yaml
+
+# Verify PVC is bound.
+kubectl get pvc test-pvc
+
+# Clean up test PVC.
+kubectl delete pod test-pvc
+kubectl delete pvc test-pvc
+kubectl delete pv <pv-name>
+----
 
 ==== Option 2: Use Ceph variant
 
@@ -1057,7 +1111,7 @@ kubectl wait --for=jsonpath='{.status.phase}'=Ready cephblockpool -n rook-ceph r
 kubectl get storageclass
 ----
 
-==== Verify CSI driver
+===== Verify CSI driver
 
 Verify CSI driver is deployed and working:
 
@@ -1082,6 +1136,7 @@ kubectl get pvc test-pvc
 
 # Clean up test PVC.
 kubectl delete pvc test-pvc
+kubectl delete pv <pv-name>
 ----
 
 === Deploy Ironbark
