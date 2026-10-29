@@ -773,6 +773,8 @@ sudo systemctl enable rke2-server.service
 sudo systemctl start rke2-server.service
 ----
 +
+Cluster initialisation takes 5-10 minutes.
++
 [TIP]
 --
 To check what images have been loaded into `containerd`, run:
@@ -802,9 +804,7 @@ sudo chown $(id -u):$(id -g) ~/.kube/config
 export PATH=$PATH:/var/lib/rancher/rke2/bin
 ----
 
-. Cluster initialisation takes 5-10 minutes.
-+
-Verify cluster is operational (all system pods Running):
+. Verify cluster is operational (all system pods Running):
 +
 [source,bash]
 ----
